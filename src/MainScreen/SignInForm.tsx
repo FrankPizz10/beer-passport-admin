@@ -1,6 +1,12 @@
 // React functional component
 import React, { useState } from "react";
 import "./SignInForm.css";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
+import { auth } from "../Firebase/firebase";
 
 function SignInForm() {
   const [username, setUsername] = useState("");
@@ -14,10 +20,24 @@ function SignInForm() {
     setPassword(event.target.value);
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     console.log("Username: " + username);
     console.log("Password: " + password);
+    try {
+      const userCredentials = await signInWithEmailAndPassword(
+        auth,
+        username,
+        password
+      );
+      const user = userCredentials.user;
+      console.log("Logged in with:", user.email);
+    } catch (error: any) {
+      const errorCode = error.code;
+      const errorMessage = error.message;
+      console.log("Error Code: ", errorCode);
+      console.log("Error Message: ", errorMessage);
+    }
   };
 
   return (
