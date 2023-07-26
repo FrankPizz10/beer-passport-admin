@@ -12,6 +12,7 @@
   padding: 10px;
   width: 400px;
   background-color: pink;
+  margin: 25px;
 }
 
 .Username, .Password {
@@ -23,4 +24,21 @@
     margin: 10px 0;
     padding: 0 10px;
     font-size: 20px;
+}
+
+.Title, .SignInButton, .MakeAdminButton {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.LogoutButton {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 50px;
+  margin: 10px 0;
+  padding: 0 10px;
+  font-size: 20px;
 }

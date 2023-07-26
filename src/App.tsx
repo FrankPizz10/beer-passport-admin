@@ -1,13 +1,15 @@
 import React from "react";
 import "./App.css";
-import SignInForm from "./MainScreen/SignInForm";
+import SignInPage from "./MainScreen/SignInPage";
+import { Route, Routes } from "react-router-dom";
+import AdminHomePage from "./MainScreen/AdminHomePage";
 
 function App() {
   return (
-    <div className="App">
-      <h1>Beer Passport Admin Page</h1>
-      <SignInForm />
-    </div>
+    <Routes>
+      <Route path="/" element={<SignInPage />} />
+      <Route path="/admin" element={<AdminHomePage />} />
+    </Routes>
   );
 }
 
