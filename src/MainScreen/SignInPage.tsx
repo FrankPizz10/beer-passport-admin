@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 function SignInPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   let navigate = useNavigate();
 
@@ -34,7 +35,6 @@ function SignInPage() {
         password
       );
       const user = userCredentials.user;
-      console.log("Logged in with:", user.email);
     } catch (error: any) {
       const errorCode = error.code;
       const errorMessage = error.message;
@@ -47,10 +47,13 @@ function SignInPage() {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         user.getIdTokenResult().then((idTokenResult) => {
-          // if (idTokenResult.claims.admin) {
+          if (idTokenResult.claims.admin) {
             console.log(`User is signed in with email ${user.email}`);
             navigate("/admin");
-          // }
+          }
+          else {
+            setErrorMessage("You are not an admin.");
+          }
         });
       }
     });
@@ -81,6 +84,7 @@ function SignInPage() {
           <div className="SignInButton">
             <input type="submit" value="Sign In" />
           </div>
+          {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
         </form>
       </div>
     </div>
