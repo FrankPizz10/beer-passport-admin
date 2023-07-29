@@ -1,6 +1,8 @@
 // React functional component
 import React, { useState } from "react";
 import "./SignInForm.css";
+import { functions } from "../Firebase/firebase";
+import { httpsCallable } from "@firebase/functions";
 
 function MakeAdminForm() {
   const [email, setEmail] = useState("");
@@ -12,24 +14,10 @@ function MakeAdminForm() {
   const makeAdmin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     console.log("Email: " + email);
-    try {
-      const response = await fetch(
-        "https://addadminrole-zmqrfdjwaq-uc.a.run.app",
-        {
-          method: "POST", // or 'POST', 'PUT', etc. depending on your function's implementation
-          headers: {
-            "Content-Type": "application/json", // Set the content type you are sending in the request
-            // Add any additional headers you might need (e.g., authorization token)
-          },
-          // Add request body if needed (e.g., for POST or PUT requests)
-          body: JSON.stringify({ email: email }),
-        }
-      );
-      const data = await response.json();
-      console.log(data);
-    } catch (error: any) {
-      console.log(error);
-    }
+    const addAdminRole = httpsCallable(functions, 'addAdminRole');
+    addAdminRole({ email: email }).then((result) => {
+      console.log(result);
+    });
   };
 
   return (

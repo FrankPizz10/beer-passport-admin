@@ -46,8 +46,12 @@ function SignInPage() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        console.log(`{user.email} is signed in`);
-        navigate("/admin");
+        user.getIdTokenResult().then((idTokenResult) => {
+          // if (idTokenResult.claims.admin) {
+            console.log(`User is signed in with email ${user.email}`);
+            navigate("/admin");
+          // }
+        });
       }
     });
     return unsubscribe;
