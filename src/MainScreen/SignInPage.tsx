@@ -1,16 +1,19 @@
 // React functional component
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import "./SignInForm.css";
 import {
-  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { auth } from "../Firebase/firebase";
+import { useNavigate } from "react-router-dom";
 
-function SignInForm() {
+function SignInPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  let navigate = useNavigate();
 
   const handleUsernameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setUsername(event.target.value);
@@ -31,7 +34,6 @@ function SignInForm() {
         password
       );
       const user = userCredentials.user;
-      console.log("Logged in with:", user.email);
     } catch (error: any) {
       const errorCode = error.code;
       const errorMessage = error.message;
@@ -40,10 +42,27 @@ function SignInForm() {
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        user.getIdTokenResult().then((idTokenResult) => {
+          if (idTokenResult.claims.admin) {
+            console.log(`User is signed in with email ${user.email}`);
+            navigate("/admin");
+          }
+          else {
+            setErrorMessage("You are not an admin.");
+          }
+        });
+      }
+    });
+    return unsubscribe;
+  }, []);
+
   return (
     <div className="Main">
       <div className="SignInContainer">
-        <h1>Sign In</h1>
+        <h1 className="Title">Admin Sign In</h1>
         <form className="SignInForm" onSubmit={handleSubmit}>
           <label className="Username">
             Username:
@@ -61,11 +80,14 @@ function SignInForm() {
               onChange={handlePasswordChange}
             />
           </label>
-          <input type="submit" value="Submit" />
+          <div className="SignInButton">
+            <input type="submit" value="Sign In" />
+          </div>
+          {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
         </form>
       </div>
     </div>
   );
 }
 
-export default SignInForm;
+export default SignInPage;
