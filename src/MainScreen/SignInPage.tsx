@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from "react";
 import "./SignInForm.css";
 import {
-  createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
 } from "firebase/auth";
@@ -63,7 +62,7 @@ function SignInPage() {
   return (
     <div className="Main">
       <div className="SignInContainer">
-        <h1 className="Title">Sign In</h1>
+        <h1 className="Title">Admin Sign In</h1>
         <form className="SignInForm" onSubmit={handleSubmit}>
           <label className="Username">
             Username:
