@@ -4,6 +4,7 @@ import "./SignInForm.css";
 import MakeAdminForm from "./MakeAdminForm";
 import { auth } from "../Firebase/firebase";
 import { useNavigate } from "react-router-dom";
+import AddBeer from "./AddBeer";
 
 function AdminHomePage() {
   let navigate = useNavigate();
@@ -20,12 +21,13 @@ function AdminHomePage() {
   };
 
   return (
-    <>
+    <div className="Main">
       <MakeAdminForm />
+      <AddBeer />
       <div className="LogoutButton">
         <button onClick={handleLogout}>Logout</button>
       </div>
-    </>
+    </div>
   );
 }
 

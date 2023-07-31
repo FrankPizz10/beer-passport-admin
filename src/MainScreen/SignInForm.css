@@ -2,6 +2,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  flex-direction: column;
 }
 
 .SignInContainer {
@@ -50,4 +51,38 @@
   color: red;
   font-size: 20px;
   margin: 10px 0;
+}
+
+.AddBeerContainer {
+  justify-content: center;
+  align-items: center;
+  border: 1px solid black;
+  border-radius: 10px;
+  padding: 10px;
+  width: 400px;
+  background-color: pink;
+  margin: 25px;
+
+  .Title {
+    font-size: 20px;
+  }
+}
+
+.AddBeerForm {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  width: 100%;
+}
+
+.AddBeerForm > label {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 20px;
+  margin: 5px 0;
+  padding: 0 10px;
+  font-size: 20px;
 }
