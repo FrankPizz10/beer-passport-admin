@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import "./SignInForm.css";
 import { CreateBeer } from "./types";
+import { auth } from "../Firebase/firebase";
 
 const initialBeerValues: CreateBeer = {
   brewery_id: 0,
@@ -24,10 +25,12 @@ const AddBeer = () => {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log(beer);
+    // console.log(beer);
     try {
       const addBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers`;
       console.log(addBeerUrl);
+      const token = await auth.currentUser?.getIdToken();
+      console.log("token", token);
       const response = await fetch(addBeerUrl, {
         method: "POST",
         body: JSON.stringify({
@@ -35,6 +38,7 @@ const AddBeer = () => {
         }),
         headers: {
           "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
         },
       });
       const beerResponse = await response.json();

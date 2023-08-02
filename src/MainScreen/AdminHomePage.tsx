@@ -6,7 +6,7 @@ import { auth } from "../Firebase/firebase";
 import { useNavigate } from "react-router-dom";
 import AddBeer from "./AddBeer";
 
-function AdminHomePage() {
+const AdminHomePage = () => {
   let navigate = useNavigate();
 
   const handleLogout = () => {
@@ -29,6 +29,6 @@ function AdminHomePage() {
       </div>
     </div>
   );
-}
+};
 
 export default AdminHomePage;
