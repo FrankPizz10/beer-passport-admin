@@ -5,6 +5,8 @@ import MakeAdminForm from "./MakeAdminForm";
 import { auth } from "../Firebase/firebase";
 import { useNavigate } from "react-router-dom";
 import AddBeer from "./AddBeer";
+import AddCollection from "./AddCollection";
+import AddBeerToCollection from "./AddBeerToCollection";
 
 const AdminHomePage = () => {
   let navigate = useNavigate();
@@ -24,6 +26,8 @@ const AdminHomePage = () => {
     <div className="Main">
       <MakeAdminForm />
       <AddBeer />
+      <AddCollection />
+      <AddBeerToCollection />
       <div className="LogoutButton">
         <button onClick={handleLogout}>Logout</button>
       </div>
