@@ -26,7 +26,7 @@ const AddBeer = () => {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      const addBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers`;
+      const addBeerUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
       const token = await auth.currentUser?.getIdToken();
       const response = await fetch(addBeerUrl, {
         method: "POST",

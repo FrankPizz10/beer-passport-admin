@@ -26,7 +26,7 @@ const AddCollection = () => {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      const addCollectionUrl = `${process.env.REACT_APP_API_URL}/api/collections`;
+      const addCollectionUrl = `${process.env.REACT_APP_API_URL}/admin/collections`;
       const token = await auth.currentUser?.getIdToken();
       const response = await fetch(addCollectionUrl, {
         method: "POST",
