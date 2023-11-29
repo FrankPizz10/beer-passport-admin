@@ -11,3 +11,14 @@ export interface CreateBeer {
   descript: string;
   collection_id?: number;
 }
+
+export interface CreateCollection {
+  name: string;
+  difficulty: number;
+  description: string;
+}
+
+export interface CreateCollectionBeer {
+  collection_id: number;
+  beer_id: number;
+}

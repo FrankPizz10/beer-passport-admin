@@ -1,4 +1,3 @@
-import React, { useEffect, useState } from "react";
 import "./App.css";
 import SignInPage from "./MainScreen/SignInPage";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
@@ -9,7 +8,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<SignInPage />} />
-        <Route path="/admin" element={<AdminHomePage />} />
+        <Route path="/admin" element={<AdminHomePage user=""/>} />
       </Routes>
     </BrowserRouter>
   );

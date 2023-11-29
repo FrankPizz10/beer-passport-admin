@@ -5,7 +5,7 @@ import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { auth } from "../Firebase/firebase";
 import { useNavigate } from "react-router-dom";
 
-function SignInPage() {
+const SignInPage: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -18,15 +18,21 @@ function SignInPage() {
         user.getIdTokenResult().then((idTokenResult) => {
           if (idTokenResult.claims.admin) {
             console.log(`User is signed in with email ${user.email}`);
-            // window.localStorage.setItem("auth", "true");
-            console.log("idTokenResult", idTokenResult.token);
-            navigate("/admin", { state: { token: idTokenResult.token } });
+            navigate("/admin", { state: { user: user.email } });
+          }
+          else {
+            console.log(`User is not an admin`);
+            setErrorMessage("User is not an admin!");
           }
         });
       }
+      else {
+        setErrorMessage("User is not signed in");
+        console.log("User is not signed in");
+      }
     });
     return unsubscribe;
-  }, []);
+  }, [navigate]);
 
   const handleUsernameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setUsername(event.target.value);
@@ -38,15 +44,12 @@ function SignInPage() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    console.log("Username: " + username);
-    console.log("Password: " + password);
     try {
-      const userCredentials = await signInWithEmailAndPassword(
+      await signInWithEmailAndPassword(
         auth,
         username,
         password
       );
-      const user = userCredentials.user;
     } catch (error: any) {
       const errorCode = error.code;
       const errorMessage = error.message;

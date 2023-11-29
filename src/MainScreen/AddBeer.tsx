@@ -25,17 +25,12 @@ const AddBeer = () => {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    // console.log(beer);
     try {
-      const addBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers`;
-      console.log(addBeerUrl);
+      const addBeerUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
       const token = await auth.currentUser?.getIdToken();
-      console.log("token", token);
       const response = await fetch(addBeerUrl, {
         method: "POST",
-        body: JSON.stringify({
-          beer,
-        }),
+        body: JSON.stringify(beer),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + token,
@@ -43,7 +38,10 @@ const AddBeer = () => {
       });
       const beerResponse = await response.json();
       console.log(beerResponse);
-    } catch (error) {
+    } catch (error: unknown) {
+        if (error instanceof Error) {
+            setErrorMessage(error.message);
+        }
       console.log(error);
     }
   };
