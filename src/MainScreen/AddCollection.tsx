@@ -12,7 +12,6 @@ const initialCollectionValues: CreateCollection = {
 const AddCollection = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [collection, setCollection] = useState<CreateCollection>(initialCollectionValues);
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setCollection({

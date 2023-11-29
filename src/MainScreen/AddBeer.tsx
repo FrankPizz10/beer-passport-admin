@@ -4,10 +4,7 @@ import { CreateBeer } from "./types";
 import { auth } from "../Firebase/firebase";
 
 const initialBeerValues: CreateBeer = {
-  brewery_id: 0,
   name: "",
-  cat_id: 0,
-  style_id: 0,
   descript: "",
 };
 
@@ -122,30 +119,12 @@ const AddBeer = () => {
             onChange={handleInputChange}
           />
         </label>
-        <label className="BeerFilepath">
-          Filepath:
-          <input
-            type="text"
-            name="filepath"
-            value={beer.filepath}
-            onChange={handleInputChange}
-          />
-        </label>
         <label className="BeerDescript">
           Description:
           <input
             type="text"
             name="descript"
             value={beer.descript}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerCollectionId">
-          Collection Id:
-          <input
-            type="text"
-            name="collection_id"
-            value={beer.collection_id}
             onChange={handleInputChange}
           />
         </label>
