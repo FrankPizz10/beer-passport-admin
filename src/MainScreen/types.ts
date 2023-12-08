@@ -1,12 +1,13 @@
 export interface CreateBeer {
+  id: number
   brewery_id?: number;
   name: string;
   cat_id?: number;
   style_id?: number;
-  abv?: number;
-  ibu?: number;
-  srm?: number;
-  upc?: number;
+  abv?: number | undefined;
+  ibu?: number | undefined;
+  srm?: number | undefined;
+  upc?: number | undefined;
   descript?: string;
 }
 
@@ -16,18 +17,7 @@ export interface CreateCollection {
   description: string;
 }
 
-export interface AddBeerToCollection {
-  beer_id: number;
-  collection_id: number;
-}
-
-export interface CreateCollection {
-  name: string;
-  difficulty: number;
-  description: string;
-}
-
 export interface CreateCollectionBeer {
-  collection_id: number;
   beer_id: number;
+  collection_id: number;
 }

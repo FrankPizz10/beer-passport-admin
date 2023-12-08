@@ -4,11 +4,19 @@ import { CreateBeer } from "./types";
 import { auth } from "../Firebase/firebase";
 
 const initialBeerValues: CreateBeer = {
+  id: -1,
   name: "",
+  brewery_id: -1,
+  cat_id: -1,
+  style_id: -1,
+  abv: undefined,
+  ibu: undefined,
+  srm: undefined,
+  upc: undefined,
   descript: "",
 };
 
-const AddBeer = () => {
+const BeerForm = (beerFormProps: {action: string}) => {
   const [errorMessage, setErrorMessage] = useState("");
   const [beer, setBeer] = useState<CreateBeer>(initialBeerValues);
 
@@ -22,10 +30,25 @@ const AddBeer = () => {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    try {
-      const addBeerUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch(addBeerUrl, {
+    console.log(beer);
+    const beersUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
+    const token = await auth.currentUser?.getIdToken();
+    const getBeer = async () => {
+      const getBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers/name/${beer.name}`;
+      const fetchedBeer = await fetch(getBeerUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+      });
+      const fetchedBeerRes = await fetchedBeer.json();
+      console.log("fetchedBeerRes");
+      console.log(fetchedBeerRes);
+      return fetchedBeerRes;
+    }
+    const addBeer = async () => {
+      const response = await fetch(beersUrl, {
         method: "POST",
         body: JSON.stringify(beer),
         headers: {
@@ -35,6 +58,53 @@ const AddBeer = () => {
       });
       const beerResponse = await response.json();
       console.log(beerResponse);
+      return beerResponse;
+    }
+    const updateBeer = async () => {
+      const fetchedBeerRes = await getBeer();
+      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...beer,
+          id: fetchedBeerRes.id,
+        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+      });
+      const beerResponse = await response.json();
+      console.log(beerResponse);
+      return beerResponse;
+    }
+    const deleteBeer = async () => {
+      const fetchedBeerRes = await getBeer();
+      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+        method: "DELETE",
+        body: JSON.stringify(beer),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + token,
+        },
+      });
+      const beerResponse = await response.json();
+      console.log(beerResponse);
+      return beerResponse;
+    }
+    try {
+      switch (beerFormProps.action) {
+        case "add":
+          await addBeer();
+          break;
+        case "update":
+          await updateBeer();
+          break;
+        case "delete":
+          await deleteBeer();
+          break;
+        default:
+          break;
+      }
     } catch (error: unknown) {
         if (error instanceof Error) {
             setErrorMessage(error.message);
@@ -45,7 +115,7 @@ const AddBeer = () => {
 
   return (
     <div className="AddBeerContainer">
-      <h1 className="Title">Add Beer</h1>
+      <h1 className="Title">{beerFormProps.action} Beer</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
         <label className="BeerName">
           Beer Name:
@@ -129,7 +199,7 @@ const AddBeer = () => {
           />
         </label>
         <div className="SignInButton">
-          <input type="submit" value="Add Beer" />
+          <input type="submit" value="Submit" />
         </div>
         {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
       </form>
@@ -137,4 +207,4 @@ const AddBeer = () => {
   );
 };
 
-export default AddBeer;
+export default BeerForm;

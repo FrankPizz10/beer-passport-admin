@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import "./SignInForm.css";
-import { AddBeerToCollection } from "./types";
+import { CreateCollectionBeer } from "./types";
 import { auth } from "../Firebase/firebase";
 
-const initialAddBeerToCollectionValues: AddBeerToCollection = {
-  collection_id: 0,
-  beer_id: 0,
+const initialAddBeerToCollectionValues: CreateCollectionBeer = {
+  collection_id: -1,
+  beer_id: -1,
 };
 
 const AddBeerToCollect = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [addBeerToColelction, setAddBeerToCollection] =
-    useState<AddBeerToCollection>(initialAddBeerToCollectionValues);
+    useState<CreateCollectionBeer>(initialAddBeerToCollectionValues);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

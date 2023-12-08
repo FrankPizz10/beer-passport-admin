@@ -4,9 +4,9 @@ import "./AdminHomePage.css"
 import MakeAdminForm from "./MakeAdminForm";
 import { auth } from "../Firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
-import AddBeer from "./AddBeer";
-import AddCollection from "./AddCollection";
-import AddCollectionBeer from "./AddCollectionBeer";
+import BeerForm from "./BeerForm";
+import CollectionForm from "./CollectionForm";
+import CollectionBeerForm from "./CollectionBeerForm";
 
 interface AdminHomePageProps {
   user: string;
@@ -15,6 +15,7 @@ interface AdminHomePageProps {
 const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
   let navigate = useNavigate();
   const [adminTask, setAdminTask] = useState("");
+  const [action, setAction] = useState("");
 
   const { state } = useLocation();
   const username = state?.user;
@@ -35,23 +36,36 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
       <h1 className="Title">Admin Home Page</h1>
       <h2 className="AdminWelcome">Welcome {username}</h2>
       <div className="AdminTasks">
+        <button className="AdminButton" onClick={() => setAction("add")}>
+          Add
+        </button>
+        <button className="AdminButton" onClick={() => setAction("update")}>
+          Update
+        </button>
+        <button className="AdminButton" onClick={() => setAction("delete")}>
+          Delete
+        </button>
+      </div>
+      <div className="AdminTasks">
         <button className="AdminButton" onClick={() => setAdminTask("MakeAdmin")}>
           Make Admin
         </button>
         <button className="AdminButton" onClick={() => setAdminTask("AddBeer")}>
-          Add Beer
+          {action} Beer
         </button>
         <button className="AdminButton" onClick={() => setAdminTask("AddCollection")}>
-          Add Collection
+        {action} Collection
         </button>
-        <button className="AdminButton" onClick={() => setAdminTask("AddCollectionBeer")}>
-          Add Collection Beer
-        </button>
+        {action !== "Update" && 
+          <button className="AdminButton" onClick={() => setAdminTask("AddCollectionBeer")}>
+            {action} Collection Beer
+          </button>
+        }
       </div>
       {adminTask === "MakeAdmin" && <MakeAdminForm />}
-      {adminTask === "AddBeer" && <AddBeer />}
-      {adminTask === "AddCollection" && <AddCollection />}
-      {adminTask === "AddCollectionBeer" && <AddCollectionBeer />}
+      {adminTask === "AddBeer" && <BeerForm action={action}/>}
+      {adminTask === "AddCollection" && <CollectionForm action={action}/>}
+      {adminTask === "AddCollectionBeer" && <CollectionBeerForm action={action}/>}
       <div className="LogoutButton">
         <button onClick={handleLogout}>Logout</button>
       </div>
