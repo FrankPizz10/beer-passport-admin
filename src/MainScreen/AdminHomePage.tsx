@@ -51,14 +51,14 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
           Make Admin
         </button>
         <button className="AdminButton" onClick={() => setAdminTask("AddBeer")}>
-          {action} Beer
+          {action.charAt(0).toUpperCase() + action.slice(1)} Beer
         </button>
         <button className="AdminButton" onClick={() => setAdminTask("AddCollection")}>
-        {action} Collection
+        {action.charAt(0).toUpperCase() + action.slice(1)} Collection
         </button>
         {action !== "Update" && 
           <button className="AdminButton" onClick={() => setAdminTask("AddCollectionBeer")}>
-            {action} Collection Beer
+            {action.charAt(0).toUpperCase() + action.slice(1)} Collection Beer
           </button>
         }
       </div>

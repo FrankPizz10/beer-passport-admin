@@ -52,7 +52,7 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
       return collectionBeerResponse;
     }
     const deleteCollectionBeer = async () => {
-      const response = await fetch(addCollectionUrl, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/admin/collections/deleteBeer`, {
         method: "DELETE",
         body: JSON.stringify(collectionBeer),
         headers: {
@@ -88,7 +88,7 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
 
   return (
     <div className="AddBeerContainer">
-      <h1 className="Title">{collectionBeerFormProps.action} Collection Beer</h1>
+      <h1 className="Title">{collectionBeerFormProps.action.charAt(0).toUpperCase() + collectionBeerFormProps.action.slice(1)} Collection Beer</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
         <label className="BeerName">
           Collection ID:

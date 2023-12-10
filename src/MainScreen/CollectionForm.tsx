@@ -107,7 +107,7 @@ const CollectionForm = (collectionFormProps: {action: string}) => {
 
   return (
     <div className="AddBeerContainer">
-      <h1 className="Title">{collectionFormProps.action} Collection</h1>
+      <h1 className="Title">{collectionFormProps.action.charAt(0).toUpperCase() + collectionFormProps.action.slice(1)} Collection</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
         <label className="BeerName">
           Name:

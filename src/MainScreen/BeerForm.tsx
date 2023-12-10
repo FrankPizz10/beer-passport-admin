@@ -115,7 +115,7 @@ const BeerForm = (beerFormProps: {action: string}) => {
 
   return (
     <div className="AddBeerContainer">
-      <h1 className="Title">{beerFormProps.action} Beer</h1>
+      <h1 className="Title">{beerFormProps.action.charAt(0).toUpperCase() + beerFormProps.action.slice(1)} Beer</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
         <label className="BeerName">
           Beer Name:
