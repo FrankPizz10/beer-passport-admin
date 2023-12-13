@@ -126,78 +126,82 @@ const BeerForm = (beerFormProps: {action: string}) => {
             onChange={handleInputChange}
           />
         </label>
-        <label className="BreweryId">
-          Brewery Id:
-          <input
-            type="text"
-            name="brewery_id"
-            value={beer.brewery_id}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="CatId">
-          Category Id:
-          <input
-            type="text"
-            name="cat_id"
-            value={beer.cat_id}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="StyleId">
-          Style Id:
-          <input
-            type="text"
-            name="style_id"
-            value={beer.style_id}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerABV">
-          ABV:
-          <input
-            type="text"
-            name="abv"
-            value={beer.abv}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerIBU">
-          IBU:
-          <input
-            type="text"
-            name="ibu"
-            value={beer.ibu}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerSRM">
-          SRM:
-          <input
-            type="text"
-            name="srm"
-            value={beer.srm}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerUPC">
-          UPC:
-          <input
-            type="text"
-            name="upc"
-            value={beer.upc}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="BeerDescript">
-          Description:
-          <input
-            type="text"
-            name="descript"
-            value={beer.descript}
-            onChange={handleInputChange}
-          />
-        </label>
+        {beerFormProps.action !== "delete" &&
+          <>
+            <label className="BreweryId">
+              Brewery Id:
+              <input
+                type="text"
+                name="brewery_id"
+                value={beer.brewery_id}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="CatId">
+              Category Id:
+              <input
+                type="text"
+                name="cat_id"
+                value={beer.cat_id}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="StyleId">
+              Style Id:
+              <input
+                type="text"
+                name="style_id"
+                value={beer.style_id}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="BeerABV">
+              ABV:
+              <input
+                type="text"
+                name="abv"
+                value={beer.abv}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="BeerIBU">
+              IBU:
+              <input
+                type="text"
+                name="ibu"
+                value={beer.ibu}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="BeerSRM">
+              SRM:
+              <input
+                type="text"
+                name="srm"
+                value={beer.srm}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="BeerUPC">
+              UPC:
+              <input
+                type="text"
+                name="upc"
+                value={beer.upc}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="BeerDescript">
+              Description:
+              <input
+                type="text"
+                name="descript"
+                value={beer.descript}
+                onChange={handleInputChange}
+              />
+            </label>
+          </>
+        }
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>

@@ -118,24 +118,28 @@ const CollectionForm = (collectionFormProps: {action: string}) => {
             onChange={handleInputChange}
           />
         </label>
-        <label className="BreweryId">
-          Difficulty:
-          <input
-            type="text"
-            name="difficulty"
-            value={collection.difficulty}
-            onChange={handleInputChange}
-          />
-        </label>
-        <label className="CatId">
-          Description:
-          <input
-            type="text"
-            name="description"
-            value={collection.description}
-            onChange={handleInputChange}
-          />
-        </label>
+        {collectionFormProps.action !== "delete" &&
+          <>
+            <label className="BreweryId">
+              Difficulty:
+              <input
+                type="text"
+                name="difficulty"
+                value={collection.difficulty}
+                onChange={handleInputChange}
+              />
+            </label>
+            <label className="CatId">
+              Description:
+              <input
+                type="text"
+                name="description"
+                value={collection.description}
+                onChange={handleInputChange}
+              />
+            </label>
+          </>
+        }
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>

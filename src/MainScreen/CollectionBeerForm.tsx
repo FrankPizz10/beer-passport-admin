@@ -38,19 +38,6 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
       console.log(collectionBeerResponse);
       return collectionBeerResponse;
     }
-    const updateCollectionBeer = async () => {
-      const response = await fetch(addCollectionUrl, {
-        method: "PUT",
-        body: JSON.stringify(collectionBeer),
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token,
-        },
-      });
-      const collectionBeerResponse = await response.json();
-      console.log(collectionBeerResponse);
-      return collectionBeerResponse;
-    }
     const deleteCollectionBeer = async () => {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/admin/collections/deleteBeer`, {
         method: "DELETE",
@@ -68,9 +55,6 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
       switch (collectionBeerFormProps.action) {
         case "add":
           await addCollectionBeer();
-          break;
-        case "update":
-          await updateCollectionBeer();
           break;
         case "delete":
           await deleteCollectionBeer();

@@ -56,7 +56,7 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
         <button className="AdminButton" onClick={() => setAdminTask("AddCollection")}>
         {action.charAt(0).toUpperCase() + action.slice(1)} Collection
         </button>
-        {action !== "Update" && 
+        {action !== "update" && 
           <button className="AdminButton" onClick={() => setAdminTask("AddCollectionBeer")}>
             {action.charAt(0).toUpperCase() + action.slice(1)} Collection Beer
           </button>
