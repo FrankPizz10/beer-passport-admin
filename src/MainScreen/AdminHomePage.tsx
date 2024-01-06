@@ -7,6 +7,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import BeerForm from "./BeerForm";
 import CollectionForm from "./CollectionForm";
 import CollectionBeerForm from "./CollectionBeerForm";
+import BreweryForm from "./BreweryForm";
+import CategoryForm from "./CategoryForm";
+import StyleForm from "./StyleForm";
 
 interface AdminHomePageProps {
   user: string;
@@ -36,6 +39,11 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
       <h1 className="Title">Admin Home Page</h1>
       <h2 className="AdminWelcome">Welcome {username}</h2>
       <div className="AdminTasks">
+        <button className="AdminButton" onClick={() => setAdminTask("MakeAdmin")}>
+            Make Admin
+        </button>
+      </div>
+      <div className="AdminTasks">
         <button className="AdminButton" onClick={() => setAction("add")}>
           Add
         </button>
@@ -47,9 +55,6 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
         </button>
       </div>
       <div className="AdminTasks">
-        <button className="AdminButton" onClick={() => setAdminTask("MakeAdmin")}>
-          Make Admin
-        </button>
         <button className="AdminButton" onClick={() => setAdminTask("AddBeer")}>
           {action.charAt(0).toUpperCase() + action.slice(1)} Beer
         </button>
@@ -61,11 +66,23 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
             {action.charAt(0).toUpperCase() + action.slice(1)} Collection Beer
           </button>
         }
+        <button className="AdminButton" onClick={() => setAdminTask("AddBrewery")}>
+          {action.charAt(0).toUpperCase() + action.slice(1)} Brewery
+        </button>
+        <button className="AdminButton" onClick={() => setAdminTask("AddCategory")}>
+          {action.charAt(0).toUpperCase() + action.slice(1)} Category
+        </button>
+        <button className="AdminButton" onClick={() => setAdminTask("AddStyle")}>
+          {action.charAt(0).toUpperCase() + action.slice(1)} Style
+        </button>
       </div>
       {adminTask === "MakeAdmin" && <MakeAdminForm />}
       {adminTask === "AddBeer" && <BeerForm action={action}/>}
       {adminTask === "AddCollection" && <CollectionForm action={action}/>}
       {adminTask === "AddCollectionBeer" && <CollectionBeerForm action={action}/>}
+      {adminTask === "AddBrewery" && <BreweryForm action={action}/>}
+      {adminTask === "AddCategory" && <CategoryForm action={action}/>}
+      {adminTask === "AddStyle" && <StyleForm action={action}/>}
       <div className="LogoutButton">
         <button onClick={handleLogout}>Logout</button>
       </div>
