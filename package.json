@@ -25,7 +25,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "deploy": "npm run build && aws s3 sync ./build s3://beerpassportadmin --delete && aws cloudfront create-invalidation --distribution-id E2PPA2RPT75J9Q --paths \"/*\""
   },
   "eslintConfig": {
     "extends": [
