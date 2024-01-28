@@ -9,7 +9,7 @@ const initialCollectionBeerValues: CreateCollectionBeer = {
 };
 
 const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [collectionBeer, setCollectionBeer] = useState<CreateCollectionBeer>(initialCollectionBeerValues);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,17 +54,30 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
     try {
       switch (collectionBeerFormProps.action) {
         case "add":
-          await addCollectionBeer();
+          const addRes = await addCollectionBeer();
+          if (addRes.id) {
+            setMessage(`Success: Added beer ${addRes.name} with id ${addRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${addRes.Error}`);
+          }
           break;
         case "delete":
-          await deleteCollectionBeer();
+          const deleteRes = await deleteCollectionBeer();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
+      console.log("error");
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -95,7 +108,7 @@ const CollectionBeerForm = (collectionBeerFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );

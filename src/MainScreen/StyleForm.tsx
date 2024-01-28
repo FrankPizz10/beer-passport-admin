@@ -10,7 +10,7 @@ const initialStyleValues: CreateStyle = {
 };
 
 const StyleForm = (styleFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [style, setStyle] = useState<CreateStyle>(initialStyleValues);
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -67,20 +67,32 @@ const StyleForm = (styleFormProps: {action: string}) => {
     try {
       switch (styleFormProps.action) {
         case "add":
-          await addStyle();
+          const addRes = await addStyle();
+          if (addRes.id) {
+            setMessage(`Success: Added style ${addRes.style_name} with id ${addRes.id}`);
+          }
           break;
         case "update":
-          await updateStyle();
+          const updateRes = await updateStyle();
+          if (updateRes.id) {
+            setMessage(`Success: Updated style ${updateRes.style_name} with id ${updateRes.id}`);
+          }
           break;
         case "delete":
-          await deleteStyle();
+          const deleteRes = await deleteStyle();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -126,7 +138,7 @@ const StyleForm = (styleFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );
