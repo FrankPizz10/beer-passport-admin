@@ -30,20 +30,20 @@ const BeerForm = (beerFormProps: {action: string}) => {
     console.log(beer);
     const beersUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
     const token = await auth.currentUser?.getIdToken();
-    const getBeer = async () => {
-      const getBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers/name/${beer.name}`;
-      const fetchedBeer = await fetch(getBeerUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token,
-        },
-      });
-      const fetchedBeerRes = await fetchedBeer.json();
-      console.log("fetchedBeerRes");
-      console.log(fetchedBeerRes);
-      return fetchedBeerRes;
-    }
+    // const getBeer = async () => {
+    //   const getBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers/name/${beer.name}`;
+    //   const fetchedBeer = await fetch(getBeerUrl, {
+    //     method: "GET",
+    //     headers: {
+    //       "Content-Type": "application/json",
+    //       Authorization: "Bearer " + token,
+    //     },
+    //   });
+    //   const fetchedBeerRes = await fetchedBeer.json();
+    //   console.log("fetchedBeerRes");
+    //   console.log(fetchedBeerRes);
+    //   return fetchedBeerRes;
+    // }
     const addBeer = async () => {
       const response = await fetch(beersUrl, {
         method: "POST",
@@ -58,13 +58,10 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const updateBeer = async () => {
-      const fetchedBeerRes = await getBeer();
-      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+      // const fetchedBeerRes = await getBeer();
+      const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          ...beer,
-          id: fetchedBeerRes.id,
-        }),
+        body: JSON.stringify(beer),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + token,
@@ -75,8 +72,8 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const deleteBeer = async () => {
-      const fetchedBeerRes = await getBeer();
-      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+      // const fetchedBeerRes = await getBeer();
+      const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "DELETE",
         body: JSON.stringify(beer),
         headers: {
@@ -126,6 +123,15 @@ const BeerForm = (beerFormProps: {action: string}) => {
     <div className="AddBeerContainer">
       <h1 className="Title">{beerFormProps.action.charAt(0).toUpperCase() + beerFormProps.action.slice(1)} Beer</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
+        <label className="BeerId">
+          Beer Id:
+          <input
+            type="text"
+            name="id"
+            value={beer.id}
+            onChange={handleInputChange}
+          />
+        </label>
         <label className="BeerName">
           Beer Name:
           <input
