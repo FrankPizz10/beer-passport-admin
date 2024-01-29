@@ -30,20 +30,6 @@ const BeerForm = (beerFormProps: {action: string}) => {
     console.log(beer);
     const beersUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
     const token = await auth.currentUser?.getIdToken();
-    // const getBeer = async () => {
-    //   const getBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers/name/${beer.name}`;
-    //   const fetchedBeer = await fetch(getBeerUrl, {
-    //     method: "GET",
-    //     headers: {
-    //       "Content-Type": "application/json",
-    //       Authorization: "Bearer " + token,
-    //     },
-    //   });
-    //   const fetchedBeerRes = await fetchedBeer.json();
-    //   console.log("fetchedBeerRes");
-    //   console.log(fetchedBeerRes);
-    //   return fetchedBeerRes;
-    // }
     const addBeer = async () => {
       const response = await fetch(beersUrl, {
         method: "POST",
@@ -58,7 +44,6 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const updateBeer = async () => {
-      // const fetchedBeerRes = await getBeer();
       const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "PUT",
         body: JSON.stringify(beer),
@@ -72,7 +57,6 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const deleteBeer = async () => {
-      // const fetchedBeerRes = await getBeer();
       const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "DELETE",
         body: JSON.stringify(beer),
@@ -132,17 +116,17 @@ const BeerForm = (beerFormProps: {action: string}) => {
             onChange={handleInputChange}
           />
         </label>
-        <label className="BeerName">
-          Beer Name:
-          <input
-            type="text"
-            name="name"
-            value={beer.name}
-            onChange={handleInputChange}
-          />
-        </label>
         {beerFormProps.action !== "delete" &&
           <>
+            <label className="BeerName">
+            Beer Name:
+            <input
+              type="text"
+              name="name"
+              value={beer.name}
+              onChange={handleInputChange}
+            />
+            </label>
             <label className="BreweryId">
               Brewery Id:
               <input
