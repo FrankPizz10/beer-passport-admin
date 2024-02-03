@@ -9,7 +9,7 @@ const initialCategoryValues: CreateCategory = {
 };
 
 const CategoryForm = (categoryFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [category, setCategory] = useState<CreateCategory>(initialCategoryValues);
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -66,20 +66,32 @@ const CategoryForm = (categoryFormProps: {action: string}) => {
     try {
       switch (categoryFormProps.action) {
         case "add":
-          await addCategory();
+          const addRes = await addCategory();
+          if (addRes.id) {
+            setMessage(`Success: Added category ${addRes.cat_name} with id ${addRes.id}`);
+          }
           break;
         case "update":
-          await updateCategory();
+          const updateRes = await updateCategory();
+          if (updateRes.id) {
+            setMessage(`Success: Updated category ${updateRes.cat_name} with id ${updateRes.id}`);
+          }
           break;
         case "delete":
-          await deleteCategory();
+          const deleteRes = await deleteCategory();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -116,7 +128,7 @@ const CategoryForm = (categoryFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );

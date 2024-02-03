@@ -10,7 +10,7 @@ const initialCollectionValues: CreateCollection = {
 };
 
 const CollectionForm = (collectionFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [collection, setCollection] = useState<CreateCollection>(initialCollectionValues);
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -86,20 +86,32 @@ const CollectionForm = (collectionFormProps: {action: string}) => {
     try {
       switch (collectionFormProps.action) {
         case "add":
-          await addCollection();
+          const addRes = await addCollection();
+          if (addRes.id) {
+            setMessage(`Success: Added collection ${addRes.name} with id ${addRes.id}`);
+          }
           break;
         case "update":
-          await updateCollection();
+          const updateRes = await updateCollection();
+          if (updateRes.id) {
+            setMessage(`Success: Updated collection ${updateRes.name} with id ${updateRes.id}`);
+          }
           break;
         case "delete":
-          await deleteCollection();
+          const deleteRes = await deleteCollection();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -143,7 +155,7 @@ const CollectionForm = (collectionFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );

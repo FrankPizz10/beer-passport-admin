@@ -18,7 +18,7 @@ const initialBreweryValues: CreateBrewery = {
 };
 
 const BreweryForm = (breweryFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [brewery, setBrewery] = useState<CreateBrewery>(initialBreweryValues);
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -75,20 +75,32 @@ const BreweryForm = (breweryFormProps: {action: string}) => {
     try {
       switch (breweryFormProps.action) {
         case "add":
-          await addBrewery();
+          const addRes = await addBrewery();
+          if (addRes.id) {
+            setMessage(`Success: Added brewery ${addRes.name} with id ${addRes.id}`);
+          }
           break;
         case "update":
-          await updateBrewery();
+          const updateRes = await updateBrewery();
+          if (updateRes.id) {
+            setMessage(`Success: Updated brewery ${updateRes.name} with id ${updateRes.id}`);
+          }
           break;
         case "delete":
-          await deleteBrewery();
+          const deleteRes = await deleteBrewery();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -206,7 +218,7 @@ const BreweryForm = (breweryFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );

@@ -9,15 +9,12 @@ const initialBeerValues: CreateBeer = {
   brewery_id: -1,
   cat_id: -1,
   style_id: -1,
-  abv: undefined,
-  ibu: undefined,
-  srm: undefined,
-  upc: undefined,
+  abv: -1,
   descript: "",
 };
 
 const BeerForm = (beerFormProps: {action: string}) => {
-  const [errorMessage, setErrorMessage] = useState("");
+  const [message, setMessage] = useState("");
   const [beer, setBeer] = useState<CreateBeer>(initialBeerValues);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -33,20 +30,6 @@ const BeerForm = (beerFormProps: {action: string}) => {
     console.log(beer);
     const beersUrl = `${process.env.REACT_APP_API_URL}/admin/beers`;
     const token = await auth.currentUser?.getIdToken();
-    const getBeer = async () => {
-      const getBeerUrl = `${process.env.REACT_APP_API_URL}/api/beers/name/${beer.name}`;
-      const fetchedBeer = await fetch(getBeerUrl, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer " + token,
-        },
-      });
-      const fetchedBeerRes = await fetchedBeer.json();
-      console.log("fetchedBeerRes");
-      console.log(fetchedBeerRes);
-      return fetchedBeerRes;
-    }
     const addBeer = async () => {
       const response = await fetch(beersUrl, {
         method: "POST",
@@ -61,13 +44,9 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const updateBeer = async () => {
-      const fetchedBeerRes = await getBeer();
-      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+      const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "PUT",
-        body: JSON.stringify({
-          ...beer,
-          id: fetchedBeerRes.id,
-        }),
+        body: JSON.stringify(beer),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + token,
@@ -78,8 +57,7 @@ const BeerForm = (beerFormProps: {action: string}) => {
       return beerResponse;
     }
     const deleteBeer = async () => {
-      const fetchedBeerRes = await getBeer();
-      const response = await fetch(beersUrl + `/${fetchedBeerRes.id}`, {
+      const response = await fetch(beersUrl + `/${beer.id}`, {
         method: "DELETE",
         body: JSON.stringify(beer),
         headers: {
@@ -94,20 +72,32 @@ const BeerForm = (beerFormProps: {action: string}) => {
     try {
       switch (beerFormProps.action) {
         case "add":
-          await addBeer();
+          const addRes = await addBeer();
+          if (addRes.id) {
+            setMessage(`Success: Added beer ${addRes.name} with id ${addRes.id}`);
+          }
           break;
         case "update":
-          await updateBeer();
+          let updateRes = await updateBeer();
+          if (updateRes.id) {
+            setMessage(`Success: Updated beer ${updateRes.name} with id ${updateRes.id}`);
+          }
           break;
         case "delete":
-          await deleteBeer();
+          const deleteRes = await deleteBeer();
+          if (deleteRes.id) {
+            setMessage(`Success: Deleted beer ${deleteRes.id}`);
+          }
+          else {
+            setMessage(`Error: ${deleteRes.Error}`);
+          }
           break;
         default:
           break;
       }
     } catch (error: unknown) {
         if (error instanceof Error) {
-            setErrorMessage(error.message);
+            setMessage(error.message);
         }
       console.log(error);
     }
@@ -117,17 +107,26 @@ const BeerForm = (beerFormProps: {action: string}) => {
     <div className="AddBeerContainer">
       <h1 className="Title">{beerFormProps.action.charAt(0).toUpperCase() + beerFormProps.action.slice(1)} Beer</h1>
       <form className="AddBeerForm" onSubmit={handleSubmit}>
-        <label className="BeerName">
-          Beer Name:
+        <label className="BeerId">
+          Beer Id:
           <input
             type="text"
-            name="name"
-            value={beer.name}
+            name="id"
+            value={beer.id}
             onChange={handleInputChange}
           />
         </label>
         {beerFormProps.action !== "delete" &&
           <>
+            <label className="BeerName">
+            Beer Name:
+            <input
+              type="text"
+              name="name"
+              value={beer.name}
+              onChange={handleInputChange}
+            />
+            </label>
             <label className="BreweryId">
               Brewery Id:
               <input
@@ -164,33 +163,6 @@ const BeerForm = (beerFormProps: {action: string}) => {
                 onChange={handleInputChange}
               />
             </label>
-            <label className="BeerIBU">
-              IBU:
-              <input
-                type="text"
-                name="ibu"
-                value={beer.ibu}
-                onChange={handleInputChange}
-              />
-            </label>
-            <label className="BeerSRM">
-              SRM:
-              <input
-                type="text"
-                name="srm"
-                value={beer.srm}
-                onChange={handleInputChange}
-              />
-            </label>
-            <label className="BeerUPC">
-              UPC:
-              <input
-                type="text"
-                name="upc"
-                value={beer.upc}
-                onChange={handleInputChange}
-              />
-            </label>
             <label className="BeerDescript">
               Description:
               <input
@@ -205,7 +177,7 @@ const BeerForm = (beerFormProps: {action: string}) => {
         <div className="SignInButton">
           <input type="submit" value="Submit" />
         </div>
-        {errorMessage && <p className="ErrorMessage">{errorMessage}</p>}
+        {message && <p className="ErrorMessage">{message}</p>}
       </form>
     </div>
   );
