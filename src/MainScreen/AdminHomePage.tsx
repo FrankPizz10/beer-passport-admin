@@ -37,7 +37,7 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
   return (
     <div className="Main">
       <h1 className="Title">Admin Home Page</h1>
-      <h2 className="AdminWelcome">Welcome {username}</h2>
+      <h2 className="AdminWelcome">Welcome {username}!</h2>
       <div className="AdminTasks">
         <button className="AdminButton" onClick={() => setAdminTask("MakeAdmin")}>
             Make Admin
