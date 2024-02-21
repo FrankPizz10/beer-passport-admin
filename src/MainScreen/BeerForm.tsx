@@ -149,15 +149,17 @@ const BeerForm = (beerFormProps: {action: string}) => {
       }
       {(editBeer || (beerFormProps.action !== "update")) &&
         <form className="AddBeerForm" onSubmit={handleSubmit}>
-          <label className="BeerId">
-            Beer Id:
-            <input
-              type="text"
-              name="id"
-              value={beer.id}
-              onChange={handleInputChange}
-            />
-          </label>
+          {beerFormProps.action !== "add" &&
+            <label className="BeerId">
+              Beer Id:
+              <input
+                type="text"
+                name="id"
+                value={beer.id}
+                onChange={handleInputChange}
+              />
+            </label>
+          }
           {beerFormProps.action !== "delete" &&
             <>
               <label className="BeerName">
