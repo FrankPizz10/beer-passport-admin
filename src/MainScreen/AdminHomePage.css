@@ -31,3 +31,16 @@
         cursor: pointer;
     }
 }
+
+.AdminButton {
+    width: 150px;
+    height: 60px;
+    font-size: 20px;
+    border-radius: 10px;
+    background-color: #E5E4E2;
+
+    &:hover {
+        cursor: pointer;
+        background-color: #C0C0C0;
+    }
+}
