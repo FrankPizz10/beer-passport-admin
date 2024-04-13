@@ -11,6 +11,7 @@ import BreweryForm from "./BreweryForm";
 import CategoryForm from "./CategoryForm";
 import StyleForm from "./StyleForm";
 import SheetsPage from "./AdminTasks";
+import Analytics from "./Analytics";
 
 interface AdminHomePageProps {
   user: string;
@@ -18,7 +19,8 @@ interface AdminHomePageProps {
 
 enum SetupTypes {
   DatabaseMod,
-  AdminTasks
+  AdminTasks,
+  Analytics
 }
 
 interface HomePageSetup {
@@ -56,7 +58,10 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
                 Make Admin
             </button>
             <button className="AdminButton" onClick={() => setSetup({setup: SetupTypes.AdminTasks})}>
-              API KEYS
+                API KEYS
+            </button>
+            <button className="AdminButton" onClick={() => setSetup({setup: SetupTypes.Analytics})}>
+                Analytics
             </button>
           </div>
           <div className="AdminTasks">
@@ -109,6 +114,14 @@ const AdminHomePage: React.FC<AdminHomePageProps> = ({user}) => {
           <SheetsPage />
         </>
       }
+      {setup.setup === SetupTypes.Analytics &&
+        <>
+          <button className="sheetsButton" onClick={() => setSetup({setup: SetupTypes.DatabaseMod})}>
+            Home
+          </button>
+          <Analytics />
+        </>
+      } 
       <div className="LogoutButton">
         <button onClick={handleLogout}>Logout</button>
       </div>
