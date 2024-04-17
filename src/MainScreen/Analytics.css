@@ -1,0 +1,43 @@
+.totals {
+    display: flex;
+    justify-content: space-between;
+    margin: 20px;
+    align-items: center;
+    flex-direction: column;
+    border-radius: 10px;
+    box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.2);
+    padding: 20px;
+}
+
+.analyticsCharts {
+    display: flex;
+    justify-content: space-between;
+    margin: 20px;
+    align-items: center;
+    flex-direction: column;
+    flex-wrap: wrap;
+}
+
+.chart {
+    width: 60vw;
+    height: 40vh;
+    margin: 10px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px 0 rgba(0, 0, 0, 0.2);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+@media (max-width: 768px) {
+    .analyticsCharts {
+        justify-content: center;
+    }
+
+    .chart {
+        width: 95%;
+    }
+}
+
