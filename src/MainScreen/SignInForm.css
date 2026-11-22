@@ -1,19 +1,45 @@
 .Main {
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   flex-direction: column;
+  align-items: center;
 }
 
 .SignInContainer {
+  border: 1px solid #aaa;
+  border-radius: 8px;
+  padding: 20px;
+  width: 400px;
+  max-width: 92vw;
+  background-color: #fafafa;
+  margin: 40px 25px;
+}
+
+.SignInForm label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin: 10px 0;
+  font-size: 16px;
+  gap: 10px;
+}
+
+.SignInForm input[type="text"],
+.SignInForm input[type="password"] {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+}
+
+.Title {
+  display: flex;
   justify-content: center;
   align-items: center;
-  border: 1px solid black;
-  border-radius: 10px;
-  padding: 10px;
-  width: 400px;
-  background-color: pink;
-  margin: 25px;
+  font-size: 22px;
+  margin-bottom: 10px;
 }
 
 .SignInButton {
@@ -21,93 +47,29 @@
   justify-content: center;
   align-items: center;
   width: 100%;
-  height: 50px;
-  margin: 10px 0;
-  padding: 0 10px;
-  font-size: 20px;
+  margin: 12px 0;
 }
 
-.SignInButton>input {
+.SignInButton > input {
   width: 60%;
-  height: 100%;
-  font-size: 20px;
-  border-radius: 10px;
-  border: 1px solid black;
+  padding: 10px;
+  font-size: 16px;
+  border-radius: 6px;
+  border: 1px solid #888;
   background-color: white;
-}
-
-.SignInButton>input:hover {
-  background-color: lightgray;
   cursor: pointer;
 }
 
-.Username, .Password {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 50px;
-    margin: 10px 0;
-    padding: 0 10px;
-    font-size: 20px;
-}
-
-.Title, .SignInButton, .MakeAdminButton {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-}
-
-.LogoutButton {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  height: 50px;
-  margin: 10px 0;
-  padding: 0 10px;
-  font-size: 20px;
+.SignInButton > input:hover {
+  background-color: #eee;
 }
 
 .ErrorMessage {
   display: flex;
   justify-content: center;
   align-items: center;
-  color: black;
-  font-size: 20px;
+  color: #b3261e;
+  font-size: 15px;
   margin: 10px 0;
-}
-
-.AddBeerContainer {
-  justify-content: center;
-  align-items: center;
-  border: 1px solid black;
-  border-radius: 10px;
-  padding: 10px;
-  width: 400px;
-  background-color: pink;
-  margin: 25px;
-
-  .Title {
-    font-size: 20px;
-  }
-}
-
-.AddBeerForm {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  width: 100%;
-}
-
-.AddBeerForm > label {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  height: 20px;
-  margin: 5px 0;
-  padding: 0 10px;
-  font-size: 20px;
+  text-align: center;
 }

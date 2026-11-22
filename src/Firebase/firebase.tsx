@@ -1,6 +1,6 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, connectAuthEmulator } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getFunctions } from "firebase/functions";
 
@@ -33,6 +33,14 @@ const app = initializeApp(firebaseConfig);
 
 // Initalize Firebase Auth
 export const auth = getAuth(app);
+
+if (process.env.REACT_APP_USE_AUTH_EMULATOR === 'true') {
+  connectAuthEmulator(
+    auth,
+    process.env.REACT_APP_AUTH_EMULATOR_URL || 'http://localhost:9099',
+    { disableWarnings: true }
+  );
+}
 
 // Initalize Firebase Firestore
 export const db = getFirestore(app);

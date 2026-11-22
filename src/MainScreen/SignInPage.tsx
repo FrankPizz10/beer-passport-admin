@@ -52,9 +52,10 @@ const SignInPage: React.FC = () => {
       );
     } catch (error: any) {
       const errorCode = error.code;
-      const errorMessage = error.message;
+      const caughtMessage = error.message;
       console.log("Error Code: ", errorCode);
-      console.log("Error Message: ", errorMessage);
+      console.log("Error Message: ", caughtMessage);
+      setErrorMessage(caughtMessage || "Sign in failed");
     }
   };
 
