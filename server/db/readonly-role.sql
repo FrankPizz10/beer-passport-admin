@@ -13,6 +13,14 @@
 --   roles or databases, is not a superuser, and receives NO default
 --   privileges: tables created later are invisible to it until a human
 --   adds an explicit GRANT in a reviewed change.
+--   Memberships and ownership: NOINHERIT alone does not stop a member
+--   role from being assumed with SET ROLE, so this script also revokes
+--   every role membership the viewer role holds (each revocation is
+--   reported with a NOTICE, never silent), and it FAILS CLOSED if the
+--   role owns any database objects: ownership is never reassigned
+--   automatically, because that is a destructive operator decision. If
+--   the script fails on ownership, reassign the objects first
+--   (REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>) and re-run.
 -- Never run this with migration or application-owner credentials as the
 -- viewer's runtime identity; this script is executed BY an owner ONCE to
 -- create the separate, weaker runtime role.
@@ -36,6 +44,46 @@ ALTER ROLE beerpassport_admin_viewer
   LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
   CONNECTION LIMIT 20
   PASSWORD :'viewer_password';
+
+-- Fail closed on ownership: the viewer role must own no database objects
+-- (in this database or any shared object such as a database itself).
+-- pg_shdepend records an owner dependency (deptype 'o') for every object
+-- a role owns; DROP OWNED uses the same catalog. Reassigning ownership is
+-- deliberately NOT done here.
+DO $$
+DECLARE
+  owned_count int;
+BEGIN
+  SELECT count(*) INTO owned_count
+  FROM pg_shdepend
+  WHERE refclassid = 'pg_authid'::regclass
+    AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'beerpassport_admin_viewer')
+    AND deptype = 'o';
+  IF owned_count > 0 THEN
+    RAISE EXCEPTION 'beerpassport_admin_viewer owns % database object(s). Reassign them first (REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>) and re-run this script. Refusing to continue.', owned_count;
+  END IF;
+END
+$$;
+
+-- Remediate memberships: the viewer role must be a member of no other
+-- role, otherwise SET ROLE could assume that role's privileges despite
+-- NOINHERIT. Every membership found is revoked and reported by NOTICE.
+DO $$
+DECLARE
+  membership record;
+BEGIN
+  FOR membership IN
+    SELECT granted.rolname AS granted_role
+    FROM pg_auth_members m
+    JOIN pg_roles granted ON granted.oid = m.roleid
+    JOIN pg_roles member ON member.oid = m.member
+    WHERE member.rolname = 'beerpassport_admin_viewer'
+  LOOP
+    EXECUTE format('REVOKE %I FROM beerpassport_admin_viewer', membership.granted_role);
+    RAISE NOTICE 'Revoked unexpected role membership: beerpassport_admin_viewer was a member of %', membership.granted_role;
+  END LOOP;
+END
+$$;
 
 -- Clean slate, so re-running this file converges to exactly the grants below.
 REVOKE ALL ON DATABASE :"dbname" FROM beerpassport_admin_viewer;

@@ -19,6 +19,55 @@ SELECT id, user_name FROM users LIMIT 1;
 SELECT id, name, revoked FROM api_keys LIMIT 1;
 DO $$ BEGIN RAISE NOTICE 'PASS: approved reads succeed'; END $$;
 
+-- Role attributes, memberships, and ownership. NOINHERIT alone would not
+-- stop SET ROLE into a role the viewer belongs to, so membership must be
+-- exactly zero; the SET ROLE attempt below is the behavioral proof (the
+-- membership count is the general guarantee for every other role name).
+DO $$
+DECLARE
+  attrs record;
+  memberships int;
+  owned int;
+BEGIN
+  SELECT rolsuper, rolcreaterole, rolcreatedb, rolinherit, rolcanlogin
+    INTO attrs FROM pg_roles WHERE rolname = current_user;
+  IF attrs.rolsuper OR attrs.rolcreaterole OR attrs.rolcreatedb OR attrs.rolinherit THEN
+    RAISE EXCEPTION 'FAIL: role attributes are not fully restricted (super %, createrole %, createdb %, inherit %)',
+      attrs.rolsuper, attrs.rolcreaterole, attrs.rolcreatedb, attrs.rolinherit;
+  END IF;
+  IF NOT attrs.rolcanlogin THEN
+    RAISE EXCEPTION 'FAIL: viewer role cannot log in';
+  END IF;
+  RAISE NOTICE 'PASS: role attributes restricted (NOSUPERUSER, NOCREATEROLE, NOCREATEDB, NOINHERIT, LOGIN)';
+
+  SELECT count(*) INTO memberships
+  FROM pg_auth_members
+  WHERE member = (SELECT oid FROM pg_roles WHERE rolname = current_user);
+  IF memberships > 0 THEN
+    RAISE EXCEPTION 'FAIL: viewer role is a member of % other role(s)', memberships;
+  END IF;
+  RAISE NOTICE 'PASS: viewer role has no role memberships';
+
+  SELECT count(*) INTO owned
+  FROM pg_shdepend
+  WHERE refclassid = 'pg_authid'::regclass
+    AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+    AND deptype = 'o';
+  IF owned > 0 THEN
+    RAISE EXCEPTION 'FAIL: viewer role owns % database object(s)', owned;
+  END IF;
+  RAISE NOTICE 'PASS: viewer role owns no database objects';
+
+  BEGIN
+    EXECUTE 'SET ROLE postgres';
+    EXECUTE 'RESET ROLE';
+    RAISE EXCEPTION 'FAIL: SET ROLE postgres succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: SET ROLE into a more privileged role denied';
+  END;
+END
+$$;
+
 -- Sensitive columns that must be denied at the database layer.
 DO $$
 BEGIN

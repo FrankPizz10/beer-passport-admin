@@ -30,10 +30,24 @@ the suite if a Prisma mutation method is ever called.
 - Database role package written and executed against the LOCAL
   development database only: `server/db/readonly-role.sql` (creates
   `beerpassport_admin_viewer`) and `server/db/verify-readonly-role.sql`
-  (8 of 8 checks PASS: approved reads succeed; the two sensitive columns
+  (all checks PASS: approved reads succeed; the two sensitive columns
   are denied; INSERT, UPDATE, DELETE, TRUNCATE, and CREATE TABLE are all
-  denied). The live integration suite passes 4 of 4 with the API running
-  as this role.
+  denied; role attributes are fully restricted; the role has no
+  memberships, owns no objects, and cannot SET ROLE into a more
+  privileged role). The live integration suite passes 4 of 4 with the
+  API running as this role.
+- Existing-role behavior (the script is safe to re-run): if
+  `beerpassport_admin_viewer` already exists, the script forces the
+  restricted attributes, revokes every role membership it finds (each
+  revocation is printed as a NOTICE, never silent; a membership would
+  otherwise let the viewer assume that role with SET ROLE despite
+  NOINHERIT), and then applies exactly the documented grants. If the
+  role OWNS any database objects, the script instead fails closed with
+  a clear error and changes no privileges: ownership is never
+  reassigned automatically, because that is a destructive operator
+  decision. The operator reassigns the objects deliberately
+  (`REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>`, run by a
+  superuser) and re-runs the script.
 - Image handling fixed: only http(s) URLs are emitted as `image_url`. A
   bare `storage_key` (private storage object) is never emitted; the API
   reports kind `product` with provenance and a null URL instead of a
