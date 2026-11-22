@@ -68,6 +68,61 @@ BEGIN
 END
 $$;
 
+-- No unexpected DIRECT privileges: beyond the intended grants (CONNECT
+-- on this database, USAGE on public, SELECT on the intended tables and
+-- columns), the role must hold nothing, in any schema of this database,
+-- on functions or types, via default privileges, or at database level
+-- anywhere in the cluster. This mirrors the setup script's audit.
+DO $$
+DECLARE
+  me oid := (SELECT oid FROM pg_roles WHERE rolname = current_user);
+  unexpected int := 0;
+BEGIN
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_database d, aclexplode(d.datacl) a
+  WHERE a.grantee = me
+    AND NOT (d.datname = current_database() AND a.privilege_type = 'CONNECT');
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_namespace n, aclexplode(n.nspacl) a
+  WHERE a.grantee = me
+    AND NOT (n.nspname = 'public' AND a.privilege_type = 'USAGE');
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a
+  WHERE a.grantee = me AND c.relkind IN ('r', 'v', 'm', 'p', 'f', 'S')
+    AND NOT (n.nspname = 'public' AND a.privilege_type = 'SELECT'
+      AND c.relname IN ('beers', 'beverage_images', 'breweries',
+        'breweries_geocode', 'categories', 'styles', 'collections',
+        'collection_beers', 'user_beers', 'user_badges', 'friends',
+        'notifications', 'users', 'api_keys'));
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_attribute att
+  JOIN pg_class c ON c.oid = att.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(att.attacl) a
+  WHERE a.grantee = me AND att.attnum > 0 AND NOT att.attisdropped
+    AND NOT (n.nspname = 'public' AND a.privilege_type = 'SELECT'
+      AND ((c.relname = 'users' AND att.attname IN
+             ('id', 'uid', 'age', 'email', 'user_name', 'private',
+              'created_at', 'updated_at'))
+        OR (c.relname = 'api_keys' AND att.attname IN
+             ('id', 'name', 'revoked', 'created_at', 'last_used_at',
+              'last_mod'))));
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_proc p, aclexplode(p.proacl) a
+  WHERE a.grantee = me;
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_type t, aclexplode(t.typacl) a
+  WHERE a.grantee = me;
+  SELECT unexpected + count(*) INTO unexpected
+  FROM pg_default_acl d, aclexplode(d.defaclacl) a
+  WHERE a.grantee = me;
+  IF unexpected > 0 THEN
+    RAISE EXCEPTION 'FAIL: viewer role holds % unexpected direct privilege(s)', unexpected;
+  END IF;
+  RAISE NOTICE 'PASS: no unexpected direct privileges in this database or at database level';
+END
+$$;
+
 -- Sensitive columns that must be denied at the database layer.
 DO $$
 BEGIN

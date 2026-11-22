@@ -25,6 +25,15 @@
 --   beerpassport_admin_viewer TO <owner>, executed in every database
 --   where the role owns objects, by an appropriately privileged
 --   operator) and re-run this script.
+--   Privilege audit: the script also FAILS CLOSED if the role holds any
+--   DIRECT privilege beyond the intended grants below, in this database
+--   (any schema; tables, columns, sequences, functions, types, and
+--   default privileges) or at database level anywhere in the cluster.
+--   Grants are per database, so the audit covers the database the
+--   script runs against, plus cluster-wide database privileges; run
+--   the script in every database the role can connect to. Privileges
+--   granted to PUBLIC are platform defaults, not direct grants to this
+--   role, and are outside this audit.
 -- Never run this with migration or application-owner credentials as the
 -- viewer's runtime identity; this script is executed BY an owner ONCE to
 -- create the separate, weaker runtime role.
@@ -63,6 +72,107 @@ BEGIN
 END
 $$;
 
+-- Fail closed on unexpected DIRECT privileges, also before any change.
+-- The clean-slate revokes further down only cover public-schema tables
+-- and sequences, so without this audit a re-run could silently leave
+-- privileges in other schemas, on functions or types, granted by
+-- default privileges, or on other databases. The audit whitelists
+-- exactly the intended grants (CONNECT on this database, USAGE on
+-- public, SELECT on the intended tables and columns, nothing else) and
+-- fails with the findings listed if anything else exists. Remediation
+-- is manual and deliberate: REVOKE each listed privilege (in the
+-- database named, for database-level findings), then re-run.
+DO $$
+DECLARE
+  viewer_oid oid := (SELECT oid FROM pg_roles WHERE rolname = 'beerpassport_admin_viewer');
+  findings text[] := '{}';
+  r record;
+BEGIN
+  FOR r IN
+    SELECT d.datname AS obj, a.privilege_type AS priv
+    FROM pg_database d, aclexplode(d.datacl) a
+    WHERE a.grantee = viewer_oid
+      AND NOT (d.datname = current_database() AND a.privilege_type = 'CONNECT')
+  LOOP
+    findings := findings || format('database %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname AS obj, a.privilege_type AS priv
+    FROM pg_namespace n, aclexplode(n.nspacl) a
+    WHERE a.grantee = viewer_oid
+      AND NOT (n.nspname = 'public' AND a.privilege_type = 'USAGE')
+  LOOP
+    findings := findings || format('schema %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname || '.' || c.relname AS obj, a.privilege_type AS priv
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a
+    WHERE a.grantee = viewer_oid
+      AND c.relkind IN ('r', 'v', 'm', 'p', 'f', 'S')
+      AND NOT (n.nspname = 'public' AND a.privilege_type = 'SELECT'
+        AND c.relname IN ('beers', 'beverage_images', 'breweries',
+          'breweries_geocode', 'categories', 'styles', 'collections',
+          'collection_beers', 'user_beers', 'user_badges', 'friends',
+          'notifications', 'users', 'api_keys'))
+  LOOP
+    findings := findings || format('table %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname || '.' || c.relname || '.' || att.attname AS obj,
+           a.privilege_type AS priv
+    FROM pg_attribute att
+    JOIN pg_class c ON c.oid = att.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(att.attacl) a
+    WHERE a.grantee = viewer_oid
+      AND att.attnum > 0 AND NOT att.attisdropped
+      AND NOT (n.nspname = 'public' AND a.privilege_type = 'SELECT'
+        AND ((c.relname = 'users' AND att.attname IN
+               ('id', 'uid', 'age', 'email', 'user_name', 'private',
+                'created_at', 'updated_at'))
+          OR (c.relname = 'api_keys' AND att.attname IN
+               ('id', 'name', 'revoked', 'created_at', 'last_used_at',
+                'last_mod'))))
+  LOOP
+    findings := findings || format('column %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname || '.' || p.proname AS obj, a.privilege_type AS priv
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace, aclexplode(p.proacl) a
+    WHERE a.grantee = viewer_oid
+  LOOP
+    findings := findings || format('function %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT n.nspname || '.' || t.typname AS obj, a.privilege_type AS priv
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace, aclexplode(t.typacl) a
+    WHERE a.grantee = viewer_oid
+  LOOP
+    findings := findings || format('type %s: %s', r.obj, r.priv);
+  END LOOP;
+
+  FOR r IN
+    SELECT a.privilege_type AS priv
+    FROM pg_default_acl d, aclexplode(d.defaclacl) a
+    WHERE a.grantee = viewer_oid
+  LOOP
+    findings := findings || format('default privileges: %s granted to viewer', r.priv);
+  END LOOP;
+
+  IF coalesce(array_length(findings, 1), 0) > 0 THEN
+    RAISE EXCEPTION 'beerpassport_admin_viewer holds % unexpected direct privilege(s): %. Revoke each manually (database-level findings in the named database; object findings in this database) and re-run. Refusing to continue; nothing was changed.',
+      array_length(findings, 1), array_to_string(findings[1:20], '; ');
+  END IF;
+END
+$$;
+
 -- CONNECTION LIMIT 20: the viewer's Prisma client pools connections and
 -- the overview endpoint counts 14 tables concurrently; a limit of 5 was
 -- tested locally and produced connection refusals under that fan-out.
@@ -92,7 +202,13 @@ BEGIN
 END
 $$;
 
--- Clean slate, so re-running this file converges to exactly the grants below.
+-- Clean slate for public-schema tables and sequences. Together with the
+-- privilege audit above (which fails closed on anything beyond the
+-- intended set, in any schema, in this database), re-running this file
+-- converges the role's direct privileges in THIS database to exactly
+-- the grants below. Database-level privileges are audited cluster-wide;
+-- object grants in other databases are not visible from here and are
+-- covered by running this script in each database (see runbook).
 REVOKE ALL ON DATABASE :"dbname" FROM beerpassport_admin_viewer;
 REVOKE ALL ON SCHEMA public FROM beerpassport_admin_viewer;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM beerpassport_admin_viewer;

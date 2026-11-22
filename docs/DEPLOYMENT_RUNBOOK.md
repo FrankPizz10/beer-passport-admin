@@ -47,12 +47,30 @@ the suite if a Prisma mutation method is ever called.
   (superuser or the objects' owner) runs `REASSIGN OWNED BY
   beerpassport_admin_viewer TO <owner>` in EVERY database where the
   role owns objects (REASSIGN OWNED works one database at a time), and
-  then re-runs the role setup script. On a clean role, the script
-  forces the restricted attributes, revokes every role membership it
-  finds (each revocation is printed as a NOTICE, never silent; a
-  membership would otherwise let the viewer assume that role with
-  SET ROLE despite NOINHERIT), and then applies exactly the documented
-  grants.
+  then re-runs the role setup script. The script also audits DIRECT
+  privileges before changing anything, and fails closed, listing every
+  finding, if the role holds anything beyond the intended grants:
+  database-level privileges anywhere in the cluster (only CONNECT on
+  the target database is intended), schema privileges in any schema
+  (only USAGE on public), table, view, sequence, or column privileges
+  beyond the documented SELECT lists, any function or type grants, and
+  any default privileges granted to the role. Remediation is manual:
+  revoke each listed privilege (for example `REVOKE CREATE ON SCHEMA
+  analytics FROM beerpassport_admin_viewer`, or `ALTER DEFAULT
+  PRIVILEGES FOR ROLE <owner> REVOKE ALL ON TABLES FROM
+  beerpassport_admin_viewer`), then re-run. Scope limits, stated
+  plainly: object grants are per database, so the audit covers the
+  database the script runs against (run it in every database the role
+  can connect to); database-level privileges are the one cluster-wide
+  check. Privileges granted to PUBLIC are platform defaults shared by
+  every role, not direct grants to this one, and are outside the audit.
+  On a clean role, the script forces the restricted attributes,
+  revokes every role membership it finds (each revocation is printed
+  as a NOTICE, never silent; a membership would otherwise let the
+  viewer assume that role with SET ROLE despite NOINHERIT), and then
+  applies exactly the documented grants. With the audit passing, a
+  re-run converges the role's direct privileges in that database to
+  exactly the documented set.
 - Image handling fixed: only http(s) URLs are emitted as `image_url`. A
   bare `storage_key` (private storage object) is never emitted; the API
   reports kind `product` with provenance and a null URL instead of a
