@@ -84,10 +84,15 @@ per resource allowlist (see src/pagination.ts).
 
 The viewer must not run on migration or application-owner credentials.
 `db/readonly-role.sql` creates the dedicated `beerpassport_admin_viewer`
-role: LOGIN, NOINHERIT, SELECT-only on an explicit table list, with
+role: LOGIN, NOINHERIT, NOREPLICATION, NOBYPASSRLS, SELECT-only on an
+explicit table list, with
 column-level exclusions for `users.notification_token` and `api_keys.key`,
 no default privileges (future tables are never auto-granted), and a
 connection limit of 20 (Prisma pools; the overview endpoint fans out).
+The script runs as a single transaction: any failure rolls back every
+change it made (attributes, password, membership revocations, grants).
+Run it as a plain `psql -f` script; do not wrap it in an outer
+transaction.
 Point `DATABASE_URL` at this role outside local development.
 `db/verify-readonly-role.sql` is the self-checking verification: run it
 connected as the role; every check prints PASS and any unexpected success

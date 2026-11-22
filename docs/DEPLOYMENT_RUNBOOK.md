@@ -133,8 +133,10 @@ approval before implementation. Do not make any bucket public.
 
 1. Create the `beerpassport_admin_viewer` role in the production
    database (run `server/db/readonly-role.sql` as the owner with the
-   password set out of band), then run the verification script as the
-   role and record the output.
+   password set out of band, as a plain `psql -f` invocation; the
+   script is a single transaction, so a failed run changes nothing and
+   must not be wrapped in an outer transaction), then run the
+   verification script as the role and record the output.
 2. Provision a Firebase service account (or equivalent) for the API's
    token verification in production, stored as deployment secrets.
 3. Choose and provision the API's production host (Lightsail alongside

@@ -37,9 +37,18 @@
 -- Never run this with migration or application-owner credentials as the
 -- viewer's runtime identity; this script is executed BY an owner ONCE to
 -- create the separate, weaker runtime role.
+--
+-- Atomicity: everything after the \gset runs in ONE transaction. Any
+-- failure (a fail-closed check, a missing table in a GRANT, anything)
+-- rolls back every change the run made: role creation, attributes,
+-- password, membership revocations, and grants. Run it as a plain psql
+-- script exactly as documented above; do not wrap it in an outer
+-- transaction or --single-transaction (the script manages its own).
 
 \set ON_ERROR_STOP on
 SELECT current_database() AS dbname \gset
+
+BEGIN;
 
 DO $$
 BEGIN
@@ -178,7 +187,7 @@ $$;
 -- tested locally and produced connection refusals under that fan-out.
 -- 20 is still a hard bound, far below any operational risk.
 ALTER ROLE beerpassport_admin_viewer
-  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
+  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
   CONNECTION LIMIT 20
   PASSWORD :'viewer_password';
 
@@ -251,3 +260,5 @@ GRANT SELECT (
 -- the migration owner) so future tables never reach the viewer by default.
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
   REVOKE ALL ON TABLES FROM beerpassport_admin_viewer;
+
+COMMIT;

@@ -29,16 +29,19 @@ DECLARE
   memberships int;
   owned int;
 BEGIN
-  SELECT rolsuper, rolcreaterole, rolcreatedb, rolinherit, rolcanlogin
+  SELECT rolsuper, rolcreaterole, rolcreatedb, rolinherit, rolcanlogin,
+         rolreplication, rolbypassrls
     INTO attrs FROM pg_roles WHERE rolname = current_user;
-  IF attrs.rolsuper OR attrs.rolcreaterole OR attrs.rolcreatedb OR attrs.rolinherit THEN
-    RAISE EXCEPTION 'FAIL: role attributes are not fully restricted (super %, createrole %, createdb %, inherit %)',
-      attrs.rolsuper, attrs.rolcreaterole, attrs.rolcreatedb, attrs.rolinherit;
+  IF attrs.rolsuper OR attrs.rolcreaterole OR attrs.rolcreatedb OR attrs.rolinherit
+     OR attrs.rolreplication OR attrs.rolbypassrls THEN
+    RAISE EXCEPTION 'FAIL: role attributes are not fully restricted (super %, createrole %, createdb %, inherit %, replication %, bypassrls %)',
+      attrs.rolsuper, attrs.rolcreaterole, attrs.rolcreatedb, attrs.rolinherit,
+      attrs.rolreplication, attrs.rolbypassrls;
   END IF;
   IF NOT attrs.rolcanlogin THEN
     RAISE EXCEPTION 'FAIL: viewer role cannot log in';
   END IF;
-  RAISE NOTICE 'PASS: role attributes restricted (NOSUPERUSER, NOCREATEROLE, NOCREATEDB, NOINHERIT, LOGIN)';
+  RAISE NOTICE 'PASS: role attributes restricted (NOSUPERUSER, NOCREATEROLE, NOCREATEDB, NOINHERIT, NOREPLICATION, NOBYPASSRLS, LOGIN)';
 
   SELECT count(*) INTO memberships
   FROM pg_auth_members
