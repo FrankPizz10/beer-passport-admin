@@ -2,8 +2,14 @@
 // ~/workspace/workstreams/pilot-impl/repo/src/Discovery/images.ts
 // Resolution order: an approved beverage_images row wins (lowest id first);
 // the category illustration map is intentionally empty, so the fallback is
-// the initials treatment with image_url null. A storage_key starting with
-// http wins, else source_url, else storage_key.
+// the initials treatment with image_url null. Only http(s) URLs are emitted
+// as image_url: a storage_key that is a full URL wins, else a source_url
+// that is a URL. A bare storage_key names a private storage object; it is
+// never emitted as image_url (the browser cannot load it and the bucket
+// stays private), so image_url is null while image_kind and provenance
+// still report that an approved product image exists. Serving those objects
+// needs presigned URLs from a backend endpoint, which requires CTO-approved
+// storage permissions; see docs/DEPLOYMENT_RUNBOOK.md.
 export type ImageFields = {
   image_url: string | null;
   image_kind: 'product' | 'category' | 'initials';
@@ -43,10 +49,13 @@ export const deriveTier = (licenseType: string): 'A' | 'B' | 'C' => {
   return 'B';
 };
 
+const httpUrl = (value: string | null | undefined): string | null =>
+  value && (value.startsWith('https://') || value.startsWith('http://'))
+    ? value
+    : null;
+
 const toImageFields = (row: ImageRow): ImageFields => ({
-  image_url: row.storage_key && row.storage_key.startsWith('http')
-    ? row.storage_key
-    : row.source_url || row.storage_key || null,
+  image_url: httpUrl(row.storage_key) ?? httpUrl(row.source_url),
   image_kind: 'product',
   image_provenance: {
     tier: deriveTier(row.license_type),

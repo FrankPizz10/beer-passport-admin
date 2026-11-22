@@ -80,6 +80,22 @@ Lists return { results, pagination: { page, page_size, total_results,
 total_pages } }. Sorting uses ?sort=<field>&direction=<asc|desc> with a
 per resource allowlist (see src/pagination.ts).
 
+## Database runtime role (read only at the database layer)
+
+The viewer must not run on migration or application-owner credentials.
+`db/readonly-role.sql` creates the dedicated `beerpassport_admin_viewer`
+role: LOGIN, NOINHERIT, SELECT-only on an explicit table list, with
+column-level exclusions for `users.notification_token` and `api_keys.key`,
+no default privileges (future tables are never auto-granted), and a
+connection limit of 20 (Prisma pools; the overview endpoint fans out).
+Point `DATABASE_URL` at this role outside local development.
+`db/verify-readonly-role.sql` is the self-checking verification: run it
+connected as the role; every check prints PASS and any unexpected success
+fails the script. Both were executed against the local development
+database on 2026-11-21 (all checks PASS, and the live integration suite
+passes 4/4 running as this role). Production execution requires CTO
+approval; see `docs/DEPLOYMENT_RUNBOOK.md`.
+
 ## Schema drift check
 
 prisma/schema.prisma is a verbatim read copy of the pilot server schema
