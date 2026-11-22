@@ -18,9 +18,13 @@
 --   every role membership the viewer role holds (each revocation is
 --   reported with a NOTICE, never silent), and it FAILS CLOSED if the
 --   role owns any database objects: ownership is never reassigned
---   automatically, because that is a destructive operator decision. If
---   the script fails on ownership, reassign the objects first
---   (REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>) and re-run.
+--   automatically, because that is a destructive operator decision. The
+--   ownership check runs before any attribute or password change, so a
+--   failure leaves an existing role completely untouched. If the script
+--   fails on ownership, reassign the objects first (REASSIGN OWNED BY
+--   beerpassport_admin_viewer TO <owner>, executed in every database
+--   where the role owns objects, by an appropriately privileged
+--   operator) and re-run this script.
 -- Never run this with migration or application-owner credentials as the
 -- viewer's runtime identity; this script is executed BY an owner ONCE to
 -- create the separate, weaker runtime role.
@@ -36,20 +40,14 @@ BEGIN
 END
 $$;
 
--- CONNECTION LIMIT 20: the viewer's Prisma client pools connections and
--- the overview endpoint counts 14 tables concurrently; a limit of 5 was
--- tested locally and produced connection refusals under that fan-out.
--- 20 is still a hard bound, far below any operational risk.
-ALTER ROLE beerpassport_admin_viewer
-  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
-  CONNECTION LIMIT 20
-  PASSWORD :'viewer_password';
-
--- Fail closed on ownership: the viewer role must own no database objects
--- (in this database or any shared object such as a database itself).
--- pg_shdepend records an owner dependency (deptype 'o') for every object
--- a role owns; DROP OWNED uses the same catalog. Reassigning ownership is
--- deliberately NOT done here.
+-- Fail closed on ownership, BEFORE any attribute or password change: the
+-- viewer role must own no database objects (in this database or any
+-- shared object such as a database itself). pg_shdepend records an owner
+-- dependency (deptype 'o') for every object a role owns; DROP OWNED uses
+-- the same catalog. Reassigning ownership is deliberately NOT done here.
+-- REASSIGN OWNED works per database: run it in every database where the
+-- role owns objects, as a superuser or other appropriately privileged
+-- operator, then re-run this script.
 DO $$
 DECLARE
   owned_count int;
@@ -60,10 +58,19 @@ BEGIN
     AND refobjid = (SELECT oid FROM pg_roles WHERE rolname = 'beerpassport_admin_viewer')
     AND deptype = 'o';
   IF owned_count > 0 THEN
-    RAISE EXCEPTION 'beerpassport_admin_viewer owns % database object(s). Reassign them first (REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>) and re-run this script. Refusing to continue.', owned_count;
+    RAISE EXCEPTION 'beerpassport_admin_viewer owns % database object(s). Reassign them first (REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>, in every database where it owns objects) and re-run this script. Refusing to continue; no attributes, password, memberships, or privileges were changed.', owned_count;
   END IF;
 END
 $$;
+
+-- CONNECTION LIMIT 20: the viewer's Prisma client pools connections and
+-- the overview endpoint counts 14 tables concurrently; a limit of 5 was
+-- tested locally and produced connection refusals under that fan-out.
+-- 20 is still a hard bound, far below any operational risk.
+ALTER ROLE beerpassport_admin_viewer
+  LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
+  CONNECTION LIMIT 20
+  PASSWORD :'viewer_password';
 
 -- Remediate memberships: the viewer role must be a member of no other
 -- role, otherwise SET ROLE could assume that role's privileges despite

@@ -36,18 +36,23 @@ the suite if a Prisma mutation method is ever called.
   memberships, owns no objects, and cannot SET ROLE into a more
   privileged role). The live integration suite passes 4 of 4 with the
   API running as this role.
-- Existing-role behavior (the script is safe to re-run): if
-  `beerpassport_admin_viewer` already exists, the script forces the
-  restricted attributes, revokes every role membership it finds (each
-  revocation is printed as a NOTICE, never silent; a membership would
-  otherwise let the viewer assume that role with SET ROLE despite
-  NOINHERIT), and then applies exactly the documented grants. If the
-  role OWNS any database objects, the script instead fails closed with
-  a clear error and changes no privileges: ownership is never
+- Existing-role behavior (the script is safe to re-run): the ownership
+  check runs FIRST, before any attribute or password change. If
+  `beerpassport_admin_viewer` owns any database objects, the script
+  fails closed with a clear error and leaves an existing role
+  completely untouched: no attributes or password altered, no
+  memberships revoked, no privileges changed. Ownership is never
   reassigned automatically, because that is a destructive operator
-  decision. The operator reassigns the objects deliberately
-  (`REASSIGN OWNED BY beerpassport_admin_viewer TO <owner>`, run by a
-  superuser) and re-runs the script.
+  decision. To remediate, an appropriately privileged operator
+  (superuser or the objects' owner) runs `REASSIGN OWNED BY
+  beerpassport_admin_viewer TO <owner>` in EVERY database where the
+  role owns objects (REASSIGN OWNED works one database at a time), and
+  then re-runs the role setup script. On a clean role, the script
+  forces the restricted attributes, revokes every role membership it
+  finds (each revocation is printed as a NOTICE, never silent; a
+  membership would otherwise let the viewer assume that role with
+  SET ROLE despite NOINHERIT), and then applies exactly the documented
+  grants.
 - Image handling fixed: only http(s) URLs are emitted as `image_url`. A
   bare `storage_key` (private storage object) is never emitted; the API
   reports kind `product` with provenance and a null URL instead of a
