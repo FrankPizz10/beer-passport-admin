@@ -68,6 +68,46 @@ export interface PresignedImageResponse {
   expires_at: string;
 }
 
+// One row of GET /admin-api/v1/images/queue: a pending image candidate
+// awaiting an approval decision. image_url is set only when the direct
+// image locator is a public http(s) URL; has_private_image marks a
+// private object that must be previewed through the preview-url
+// endpoint. The raw storage key is never sent to the client.
+export interface ImageQueueItem {
+  id: number;
+  beverage_id: number;
+  beverage: Ref | null;
+  brewery: Ref | null;
+  source_type: string | null;
+  source_url: string | null;
+  license_type: string | null;
+  attribution: string | null;
+  license_url: string | null;
+  status: string;
+  source_check_status: "image" | "not_image" | "unreachable" | "unchecked" | string;
+  source_content_type: string | null;
+  source_checked_at: string | null;
+  image_url: string | null;
+  has_private_image: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// One row of GET /admin-api/v1/images/decisions: an entry of the
+// append-only approval audit trail.
+export interface ImageReviewDecision {
+  id: number;
+  beverage_image_id: number;
+  beverage_id: number;
+  action: "approve" | "reject" | string;
+  from_status: string;
+  to_status: string;
+  admin_user_id: number | null;
+  admin_user_name: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 export interface Brewery {
   id: number;
   name: string;

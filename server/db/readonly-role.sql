@@ -44,6 +44,17 @@
 -- viewer's runtime identity; this script is executed BY a superuser ONCE
 -- to create the separate, weaker runtime role.
 --
+-- Image approval workflow addition: the viewer also gets SELECT on
+-- image_review_events (the append-only decision audit trail written by
+-- beerpassport_admin_approver), so the admin decisions list can read it
+-- through the normal read-only connection. The table is created by
+-- server/db/migrations/001-image-approval.sql, which must be applied
+-- before this script's grant can succeed. EXISTING deployments that
+-- already bootstrapped the viewer do not need a full re-run for this
+-- addition; a superuser applies just the one grant:
+--
+--   GRANT SELECT ON image_review_events TO beerpassport_admin_viewer;
+--
 -- Atomicity: everything after the \gset runs in ONE transaction. Any
 -- failure (a fail-closed check, a missing table in a GRANT, anything)
 -- rolls back every change the run made: role creation, attributes,
@@ -131,7 +142,7 @@ BEGIN
         AND c.relname IN ('beers', 'beverage_images', 'breweries',
           'breweries_geocode', 'categories', 'styles', 'collections',
           'collection_beers', 'user_beers', 'user_badges', 'friends',
-          'notifications', 'users', 'api_keys'))
+          'notifications', 'users', 'api_keys', 'image_review_events'))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
   END LOOP;
@@ -245,7 +256,8 @@ GRANT SELECT ON
   user_beers,
   user_badges,
   friends,
-  notifications
+  notifications,
+  image_review_events
 TO beerpassport_admin_viewer;
 
 -- Column-level SELECT where a column must stay unreadable even at the

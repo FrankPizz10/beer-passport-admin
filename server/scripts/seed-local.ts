@@ -1,6 +1,7 @@
-// Synthetic local seed for the admin viewer. This script is the ONLY file
-// in this server allowed to use Prisma mutation methods; the server source
-// under src/ is read only (enforced by src/readOnlyGuard.test.ts).
+// Synthetic local seed for the admin viewer. Operator scripts under
+// scripts/ are outside the read-only guard's scope; the server source
+// under src/ is read only except the image approval write path
+// (enforced by src/readOnlyGuard.test.ts).
 // HARD REFUSAL: the script exits non-zero unless the DATABASE_URL hostname
 // is localhost or 127.0.0.1. It never seeds a remote database.
 // Idempotent: it first removes the rows it owns, then inserts fresh ones.

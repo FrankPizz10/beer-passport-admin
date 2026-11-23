@@ -49,7 +49,7 @@ export const deriveTier = (licenseType: string): 'A' | 'B' | 'C' => {
   return 'B';
 };
 
-const httpUrl = (value: string | null | undefined): string | null =>
+export const httpUrl = (value: string | null | undefined): string | null =>
   value && (value.startsWith('https://') || value.startsWith('http://'))
     ? value
     : null;
