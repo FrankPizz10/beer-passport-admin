@@ -10,6 +10,8 @@ import decodeAdminToken from './middleware/decodeAdminToken';
 import { createCatalogRouter } from './routes/catalog';
 import { createUsersRouter } from './routes/users';
 import { createAdminRouter } from './routes/admin';
+import { createImagesRouter } from './routes/images';
+import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
 export type AppDeps = {
@@ -17,6 +19,7 @@ export type AppDeps = {
   verifyIdToken?: (token: string) => Promise<any>;
   findUserByUid?: (uid: string) => Promise<any>;
   firebaseVerifier?: AuthVerifier;
+  presignGetUrl?: PresignGetUrl | null;
 };
 
 export const createApp = (deps: AppDeps = {}) => {
@@ -50,11 +53,15 @@ export const createApp = (deps: AppDeps = {}) => {
     authMiddleware = decodeAdminToken;
   }
 
+  const presignGetUrl =
+    deps.presignGetUrl !== undefined ? deps.presignGetUrl : getDefaultPresigner();
+
   const api = express.Router();
   api.use(authMiddleware);
   api.use(createCatalogRouter(prisma));
   api.use(createUsersRouter(prisma));
   api.use(createAdminRouter(prisma, deps.firebaseVerifier));
+  api.use(createImagesRouter(prisma, presignGetUrl));
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {

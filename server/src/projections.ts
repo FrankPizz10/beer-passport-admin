@@ -145,6 +145,14 @@ export const beverageImageListSelect = {
 
 export const beverageImageDetailSelect = beverageImageListSelect;
 
+// Server-side only: the private-image endpoint needs the storage key to
+// sign a presigned GET URL. The key is never serialized into a response;
+// this select exists so the endpoint does not load the full row.
+export const beverageImageStorageSelect = {
+  id: true,
+  storage_key: true,
+};
+
 export const breweryGeocodeSelect = {
   id: true,
   brewery_id: true,
