@@ -97,7 +97,7 @@ BEGIN
       AND c.relname IN ('beers', 'beverage_images', 'breweries',
         'breweries_geocode', 'categories', 'styles', 'collections',
         'collection_beers', 'user_beers', 'user_badges', 'friends',
-        'notifications', 'users', 'api_keys'));
+        'notifications', 'users', 'api_keys', 'image_review_events'));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_attribute att
   JOIN pg_class c ON c.oid = att.attrelid
