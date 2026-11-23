@@ -50,7 +50,7 @@ function TabList({ userId, tab }: { userId: string; tab: Tab }) {
     emptyMessage = "This user has no friends in this database.";
     columns = [
       { key: "id", label: "ID" },
-      { key: "other_user", label: "Friend", render: (r: UserFriendRow) => <Link to={`/admin/users/${r.other_user.id}`}>{r.other_user.user_name}</Link> },
+      { key: "other_user", label: "Friend", render: (r: UserFriendRow) => r.other_user ? <Link to={`/admin/users/${r.other_user.id}`}>{r.other_user.user_name}</Link> : "Unknown" },
       { key: "created_at", label: "Created", render: (r: UserFriendRow) => fmtDate(r.created_at) },
     ];
   } else {
@@ -98,7 +98,7 @@ const UserDetailPage: React.FC = () => {
         <div><span className="field-label">Age</span>{fmtVal(data.age)}</div>
         <div><span className="field-label">Private</span>{fmtBool(data.private)}</div>
         <div><span className="field-label">Created</span>{fmtDate(data.created_at)}</div>
-        <div><span className="field-label">Beers tried</span>{data.beer_count}</div>
+        <div><span className="field-label">Beers tried</span>{data.tried_count}</div>
         <div><span className="field-label">Badges</span>{data.badge_count}</div>
       </div>
       <div className="tabs">
