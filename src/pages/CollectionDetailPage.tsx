@@ -19,9 +19,11 @@ const CollectionDetailPage: React.FC = () => {
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error.message} onRetry={reload} />;
   if (!data) return <ErrorState message="Collection not found" onRetry={reload} />;
-  const members: any = data.beers || data.collection_beers;
-  const rows = (members?.results ?? []).map((row: any) =>
-    row.beer ? { id: row.id, beer_id: row.beer.id, name: row.beer.name } : row
+  // The detail response is flat: `beers` is a plain array of member
+  // rows and pagination sits at the top level of the body.
+  const members = data.beers ?? [];
+  const rows = members.map((row) =>
+    row.beer ? { id: row.id, beer_id: row.beer.id, name: row.beer.name } : { id: row.id, beer_id: undefined, name: "" }
   );
   return (
     <div>
@@ -38,7 +40,7 @@ const CollectionDetailPage: React.FC = () => {
           { key: "id", label: "Row ID" },
           { key: "name", label: "Beer", render: (r: any) => <Link to={`/admin/catalog/beers/${r.beer_id ?? r.id}`}>{r.name}</Link> },
         ]} />
-      {members && <Pagination page={members.pagination.page} totalPages={members.pagination.total_pages} totalResults={members.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
+      {data.pagination && <Pagination page={data.pagination.page} totalPages={data.pagination.total_pages} totalResults={data.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
     </div>
   );
 };
