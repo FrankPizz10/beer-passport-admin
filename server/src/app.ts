@@ -1,9 +1,12 @@
-// Express app assembly. Only GET routes are registered anywhere in this
-// server. The health route is public; every other /admin-api/v1 route sits
-// behind decodeAdminToken.
+// Express app assembly. Every route is GET-only except the two image
+// approval endpoints (POST /images/:id/approve and /reject), which run
+// on the separate write client from writeDb.ts and are the only
+// mutation surface in the server. The health route is public; every
+// other /admin-api/v1 route sits behind decodeAdminToken.
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { getPrisma } from './db';
+import { getWritePrisma } from './writeDb';
 import { getAuthVerifier, AuthVerifier } from './firebase';
 import { createDecodeAdminToken, defaultFindUserByUid } from './middleware/decodeAdminToken';
 import decodeAdminToken from './middleware/decodeAdminToken';
@@ -11,11 +14,13 @@ import { createCatalogRouter } from './routes/catalog';
 import { createUsersRouter } from './routes/users';
 import { createAdminRouter } from './routes/admin';
 import { createImagesRouter } from './routes/images';
+import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
 export type AppDeps = {
   prisma?: any;
+  writePrisma?: any;
   verifyIdToken?: (token: string) => Promise<any>;
   findUserByUid?: (uid: string) => Promise<any>;
   firebaseVerifier?: AuthVerifier;
@@ -56,12 +61,18 @@ export const createApp = (deps: AppDeps = {}) => {
   const presignGetUrl =
     deps.presignGetUrl !== undefined ? deps.presignGetUrl : getDefaultPresigner();
 
+  // The write client is null when DATABASE_URL_WRITE is unset; the
+  // approval endpoints then answer 503 and everything else is unaffected.
+  const writePrisma =
+    deps.writePrisma !== undefined ? deps.writePrisma : getWritePrisma();
+
   const api = express.Router();
   api.use(authMiddleware);
   api.use(createCatalogRouter(prisma));
   api.use(createUsersRouter(prisma));
   api.use(createAdminRouter(prisma, deps.firebaseVerifier));
   api.use(createImagesRouter(prisma, presignGetUrl));
+  api.use(createImageApprovalsRouter(prisma, writePrisma));
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {

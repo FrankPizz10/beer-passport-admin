@@ -139,6 +139,12 @@ export const beverageImageListSelect = {
   license_url: true,
   status: true,
   verified_at: true,
+  reviewed_by: true,
+  reviewed_by_uid: true,
+  reviewed_at: true,
+  source_content_type: true,
+  source_checked_at: true,
+  source_check_status: true,
   created_at: true,
   updated_at: true,
 } as const;
@@ -152,6 +158,64 @@ export const beverageImageStorageSelect = {
   id: true,
   storage_key: true,
 };
+
+// Server-side only: the pending-image preview endpoint needs the row's
+// status and storage key. The key is never serialized into a response.
+export const beverageImagePreviewSelect = {
+  id: true,
+  status: true,
+  storage_key: true,
+} as const;
+
+// Server-side only, for the approval queue and the per-row preview
+// endpoint: like the storage select above, storage_key is loaded only
+// so the handler can derive image_url (when the key is an http(s) URL)
+// and has_private_image (when it is a bare private key). The serializer
+// in routes/images.ts never emits the key itself.
+export const beverageImageQueueSelect = {
+  id: true,
+  beverage_id: true,
+  source_type: true,
+  source_url: true,
+  storage_key: true,
+  license_type: true,
+  attribution: true,
+  license_url: true,
+  status: true,
+  verified_at: true,
+  reviewed_by: true,
+  reviewed_by_uid: true,
+  reviewed_at: true,
+  source_content_type: true,
+  source_checked_at: true,
+  source_check_status: true,
+  created_at: true,
+  updated_at: true,
+  beers: {
+    select: {
+      id: true,
+      name: true,
+      brewery: { select: { id: true, name: true } },
+    },
+  },
+} as const;
+
+// The decision audit trail. admin_uid is deliberately NOT selected for
+// API responses (the users list projection excludes uid for the same
+// reason); who decided is reported as the decider's users row id plus
+// user_name through the admin_user relation.
+export const imageReviewEventListSelect = {
+  id: true,
+  beverage_image_id: true,
+  beverage_id: true,
+  action: true,
+  from_status: true,
+  to_status: true,
+  admin_user_id: true,
+  note: true,
+  created_at: true,
+  admin_user: { select: { id: true, user_name: true } },
+} as const;
 
 export const breweryGeocodeSelect = {
   id: true,
@@ -260,6 +324,9 @@ export const projections = {
   collection_beersDetail: collectionBeerDetailSelect,
   beverage_imagesList: beverageImageListSelect,
   beverage_imagesDetail: beverageImageDetailSelect,
+  beverage_imagesQueue: beverageImageQueueSelect,
+  beverage_imagesPreview: beverageImagePreviewSelect,
+  image_review_eventsList: imageReviewEventListSelect,
   breweries_geocodeList: breweryGeocodeSelect,
   breweries_geocodeDetail: breweryGeocodeSelect,
   usersList: userListSelect,
