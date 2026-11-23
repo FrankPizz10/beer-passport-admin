@@ -70,7 +70,7 @@ export function DataTable<T extends object>({
           {rows.map((row, idx) => (
             <tr key={rowKey ? rowKey(row) : (row as any).id ?? idx}>
               {columns.map((col) => (
-                <td key={col.key}>
+                <td key={col.key} data-label={col.label}>
                   {col.render
                     ? col.render(row)
                     : String((row as any)[col.key] ?? "")}

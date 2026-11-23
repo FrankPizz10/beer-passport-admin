@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 
 interface Props {
   page: number;
@@ -16,7 +16,9 @@ export const Pagination: React.FC<Props> = ({
   pageSize,
   onPageChange,
   onPageSizeChange,
-}) => (
+}) => {
+  const pageSizeId = useId();
+  return (
   <div className="pagination">
     <button
       type="button"
@@ -36,9 +38,10 @@ export const Pagination: React.FC<Props> = ({
     >
       Next
     </button>
-    <label>
+    <label htmlFor={pageSizeId}>
       Page size{" "}
       <select
+        id={pageSizeId}
         value={pageSize}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}
       >
@@ -48,6 +51,7 @@ export const Pagination: React.FC<Props> = ({
       </select>
     </label>
   </div>
-);
+  );
+};
 
 export default Pagination;

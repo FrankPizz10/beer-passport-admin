@@ -1,7 +1,8 @@
 import "./App.css";
 import "./viewer.css";
 import SignInPage from "./MainScreen/SignInPage";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import ErrorBoundary from "./components/ErrorBoundary";
 import AdminLayout from "./layout/AdminLayout";
 import CatalogOverviewPage from "./pages/CatalogOverviewPage";
 import BeersPage from "./pages/BeersPage";
@@ -20,9 +21,10 @@ import UserDetailPage from "./pages/UserDetailPage";
 import AdminAccountsPage from "./pages/AdminAccountsPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 
-function App() {
+function AppRoutes() {
+  const location = useLocation();
   return (
-    <BrowserRouter>
+    <ErrorBoundary resetKey={location.pathname}>
       <Routes>
         <Route path="/" element={<SignInPage />} />
         <Route path="/admin" element={<AdminLayout />}>
@@ -45,6 +47,14 @@ function App() {
           <Route path="admin/api-keys" element={<ApiKeysPage />} />
         </Route>
       </Routes>
+    </ErrorBoundary>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppRoutes />
     </BrowserRouter>
   );
 }
