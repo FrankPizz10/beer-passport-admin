@@ -23,8 +23,10 @@ const UsersPage: React.FC = () => {
     <div>
       <h1>Users</h1>
       <div className="filters">
-        <input aria-label="Search users" placeholder="Search users" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
-        <select aria-label="Private" value={priv} onChange={(e) => { setPriv(e.target.value); controls.setPage(1); }}>
+        <label className="visually-hidden" htmlFor="users-filter-q">Search users</label>
+        <input id="users-filter-q" aria-label="Search users" placeholder="Search users" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="users-filter-private">Private</label>
+        <select id="users-filter-private" aria-label="Private" value={priv} onChange={(e) => { setPriv(e.target.value); controls.setPage(1); }}>
           <option value="">Any visibility</option>
           <option value="true">Private</option>
           <option value="false">Public</option>
@@ -40,7 +42,7 @@ const UsersPage: React.FC = () => {
           { key: "age", label: "Age", render: (r) => fmtVal(r.age) },
           { key: "private", label: "Private", render: (r) => fmtBool(r.private) },
           { key: "created_at", label: "Created", sortable: true, render: (r) => fmtDate(r.created_at) },
-          { key: "beer_count", label: "Beers Tried" },
+          { key: "tried_count", label: "Beers Tried" },
           { key: "badge_count", label: "Badges" },
         ]}
       />
