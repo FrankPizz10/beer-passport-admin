@@ -2,7 +2,7 @@ import React from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../api/client";
 import { useApiData } from "../api/useApiData";
-import { StyleDetail } from "../api/types";
+import { Beer, ListResponse, StyleDetail } from "../api/types";
 import { DataTable } from "../components/DataTable";
 import Pagination from "../components/Pagination";
 import { ErrorState, Loading } from "../components/States";
@@ -14,7 +14,14 @@ const StyleDetailPage: React.FC = () => {
   const { id } = useParams();
   const controls = useListControls("id");
   const { data, loading, error, reload } = useApiData(
-    () => apiGet<StyleDetail>(`/catalog/styles/${id}`, controls.params),
+    () => apiGet<StyleDetail>(`/catalog/styles/${id}`),
+    [id]
+  );
+  // The style detail endpoint returns no beers and no pagination.
+  // Style beers are the beers list filtered by style_id, which uses
+  // the standard { results, pagination } envelope.
+  const beers = useApiData(
+    () => apiGet<ListResponse<Beer>>("/catalog/beers", { ...controls.params, style_id: id }),
     [id, JSON.stringify(controls.params)]
   );
   if (loading) return <Loading />;
@@ -30,12 +37,18 @@ const StyleDetailPage: React.FC = () => {
         <div><span className="field-label">Last Modified</span>{fmtDate(data.last_mod)}</div>
       </div>
       <h2>Beers</h2>
-      <DataTable rows={data.beers?.results ?? []} emptyMessage="This style has no beers in this database."
-        columns={[
-          { key: "id", label: "ID" },
-          { key: "name", label: "Name", render: (r: any) => <Link to={`/admin/catalog/beers/${r.id}`}>{r.name}</Link> },
-        ]} />
-      {data.beers && <Pagination page={data.beers.pagination.page} totalPages={data.beers.pagination.total_pages} totalResults={data.beers.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
+      {beers.error ? (
+        <ErrorState message={beers.error.message} onRetry={beers.reload} />
+      ) : (
+        <>
+          <DataTable loading={beers.loading} rows={beers.data?.results ?? []} emptyMessage="This style has no beers in this database."
+            columns={[
+              { key: "id", label: "ID" },
+              { key: "name", label: "Name", render: (r: Beer) => <Link to={`/admin/catalog/beers/${r.id}`}>{r.name}</Link> },
+            ]} />
+          {beers.data && <Pagination page={beers.data.pagination.page} totalPages={beers.data.pagination.total_pages} totalResults={beers.data.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
+        </>
+      )}
     </div>
   );
 };

@@ -19,10 +19,19 @@ export interface OverviewCounts {
   [table: string]: number;
 }
 
+// Response of GET /admin-api/v1/admin/overview: the server sends the
+// counts map under `counts` AND spreads the same keys at the top level
+// ({ counts, ...counts }). Consumers must read `counts`; iterating the
+// whole body yields the nested counts object as a value.
+export interface OverviewResponse {
+  counts: OverviewCounts;
+  [table: string]: number | OverviewCounts;
+}
+
 export interface TargetInfo {
-  host: string;
-  port: number;
-  database: string;
+  host: string | null;
+  port: number | null;
+  database: string | null;
   firebase_configured: boolean;
 }
 
@@ -36,6 +45,9 @@ export interface Beer {
   descript?: string | null;
   discontinued: boolean;
   last_mod: string;
+  brewery_id?: number | null;
+  style_id?: number | null;
+  cat_id?: number | null;
   brewery: Ref | null;
   style: Ref | null;
   category: Ref | null;
@@ -57,8 +69,9 @@ export interface ImageProvenance {
 
 export interface BeerDetail extends Beer {
   collections: Ref[];
-  user_beer_count: number;
+  user_beers_count: number;
   liked_count: number;
+  counts?: { user_beers: number; liked_user_beers: number };
 }
 
 // Response of GET /admin-api/v1/images/:beverageId: a short-lived
@@ -128,14 +141,20 @@ export interface Brewery {
 export interface Geocode {
   id: number;
   brewery_id: number;
-  latitude: number;
-  longitude: number;
+  latitude: number | string;
+  longitude: number | string;
   accuracy: string;
 }
 
+// Response of GET /admin-api/v1/catalog/breweries/:id is FLAT: the
+// brewery fields, a plain array of serialized beer rows under `beers`,
+// and the pagination object at the top level (duplicated as
+// `beers_pagination`). It is NOT a ListResponse envelope.
 export interface BreweryDetail extends Brewery {
   geocode: Geocode | null;
-  beers: ListResponse<Beer>;
+  beers: Beer[];
+  pagination: PaginationInfo;
+  beers_pagination: PaginationInfo;
 }
 
 export interface Category {
@@ -147,10 +166,13 @@ export interface Category {
   style_count?: number;
 }
 
+// Response of GET /admin-api/v1/catalog/categories/:id: the category
+// fields (with `name` mirroring cat_name), a plain array of styles,
+// and beer_count. The endpoint returns NO beers and NO pagination;
+// category beers come from GET /catalog/beers?category_id=:id.
 export interface CategoryDetail extends Category {
-  styles: { id: number; style_name: string }[];
+  styles: { id: number; style_name: string; name: string; cat_id: number; last_mod: string }[];
   beer_count: number;
-  beers: ListResponse<Beer>;
 }
 
 export interface Style {
@@ -162,10 +184,13 @@ export interface Style {
   beer_count?: number;
 }
 
+// Response of GET /admin-api/v1/catalog/styles/:id: the style fields
+// (with `name` mirroring style_name), a category ref, and beer_count.
+// Like category detail it returns NO beers and NO pagination; style
+// beers come from GET /catalog/beers?style_id=:id.
 export interface StyleDetail extends Style {
   category: Ref | null;
   beer_count: number;
-  beers: ListResponse<Beer>;
 }
 
 export interface Collection {
@@ -190,16 +215,28 @@ export interface CollectionBeerRow {
   updated_at?: string;
 }
 
+// One member row of a collection detail response: a collection_beers
+// row id plus refs to the beer (and, on `beers`, the collection).
+export interface CollectionMemberRow {
+  id: number;
+  beer: Ref | null;
+  collection?: Ref | null;
+  created_at: string;
+}
+
+// Response of GET /admin-api/v1/catalog/collections/:id is FLAT: the
+// collection fields, plain arrays of member rows under `beers` and
+// `members`, and the pagination object at the top level.
 export interface CollectionDetail extends Collection {
-  beers?: ListResponse<CollectionBeerRow | Beer>;
-  collection_beers?: ListResponse<CollectionBeerRow>;
+  beers: CollectionMemberRow[];
+  members: CollectionMemberRow[];
+  pagination: PaginationInfo;
   badge_holder_count: number;
 }
 
 export interface BeverageImage {
   id: number;
   beverage_id: number;
-  beer?: Ref | null;
   source_type?: string | null;
   source_url?: string | null;
   storage_key?: string | null;
@@ -219,17 +256,20 @@ export interface AppUser {
   age: number | null;
   private: boolean;
   created_at: string;
-  beer_count: number;
+  tried_count: number;
   badge_count: number;
 }
 
 export interface UserDetail extends AppUser {
   uid: string;
   updated_at?: string;
-  beer_count: number;
-  badge_count: number;
-  friend_count?: number;
   notification_count?: number;
+  friend_count?: number;
+  counts?: {
+    user_beers: number;
+    user_badges: number;
+    notifications: number;
+  };
 }
 
 export interface UserBeerRow {
@@ -249,7 +289,7 @@ export interface UserBadgeRow {
 
 export interface UserFriendRow {
   id: number;
-  other_user: { id: number; user_name: string };
+  other_user: { id: number; user_name: string } | null;
   created_at: string;
 }
 

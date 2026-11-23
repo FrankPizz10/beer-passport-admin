@@ -25,8 +25,10 @@ const StylesPage: React.FC = () => {
     <div>
       <h1>Styles</h1>
       <div className="filters">
-        <input aria-label="Search styles" placeholder="Search styles" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
-        <input aria-label="Category ID" placeholder="Category ID" value={categoryId} onChange={(e) => { setCategoryId(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="styles-filter-q">Search styles</label>
+        <input id="styles-filter-q" aria-label="Search styles" placeholder="Search styles" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="styles-filter-category">Category ID</label>
+        <input id="styles-filter-category" aria-label="Category ID" placeholder="Category ID" value={categoryId} onChange={(e) => { setCategoryId(e.target.value); controls.setPage(1); }} />
       </div>
       <DataTable<Style>
         loading={loading} rows={data?.results ?? []} sort={controls.sort} direction={controls.direction} onSortChange={controls.onSortChange}

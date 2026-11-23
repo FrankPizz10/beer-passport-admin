@@ -4,6 +4,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../Firebase/firebase";
 import { apiGet } from "../api/client";
 import { TargetInfo } from "../api/types";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 // Client side guarding is UX only. The server rechecks the admin claim on
 // every API request, so this layout is not a security boundary.
@@ -13,6 +14,12 @@ const AdminLayout: React.FC = () => {
   const [checked, setChecked] = useState(false);
   const [email, setEmail] = useState<string>("");
   const [target, setTarget] = useState<TargetInfo | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
+
+  // Close the mobile nav whenever the route changes.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -64,6 +71,16 @@ const AdminLayout: React.FC = () => {
   return (
     <div className="admin-shell">
       <header className="admin-header">
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-expanded={navOpen}
+          aria-controls="admin-primary-nav"
+          aria-label="Toggle navigation menu"
+          onClick={() => setNavOpen((open) => !open)}
+        >
+          &#9776;
+        </button>
         <div className="header-title">BeerPassport Admin Viewer</div>
         <div className="header-meta">
           {target && (
@@ -78,7 +95,11 @@ const AdminLayout: React.FC = () => {
         </div>
       </header>
       <div className="admin-body">
-        <nav className="admin-sidebar">
+        <nav
+          id="admin-primary-nav"
+          className={navOpen ? "admin-sidebar open" : "admin-sidebar"}
+          aria-label="Admin"
+        >
           <div className="nav-section">Catalog</div>
           <NavLink to="catalog/overview">Overview</NavLink>
           <NavLink to="catalog/beers">Beers</NavLink>
@@ -95,7 +116,9 @@ const AdminLayout: React.FC = () => {
           <NavLink to="admin/api-keys">API Keys</NavLink>
         </nav>
         <main className="admin-main">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

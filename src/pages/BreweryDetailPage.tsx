@@ -49,7 +49,7 @@ const BreweryDetailPage: React.FC = () => {
       )}
       <h2>Beers</h2>
       <DataTable
-        rows={data.beers?.results ?? []}
+        rows={data.beers ?? []}
         emptyMessage="This brewery has no beers in this database."
         columns={[
           { key: "id", label: "ID" },
@@ -57,7 +57,7 @@ const BreweryDetailPage: React.FC = () => {
           { key: "abv", label: "ABV", render: (r: any) => r.abv ?? "None" },
         ]}
       />
-      {data.beers && <Pagination page={data.beers.pagination.page} totalPages={data.beers.pagination.total_pages} totalResults={data.beers.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
+      {data.pagination && <Pagination page={data.pagination.page} totalPages={data.pagination.total_pages} totalResults={data.pagination.total_results} pageSize={controls.pageSize} onPageChange={controls.setPage} onPageSizeChange={controls.onPageSizeChange} />}
     </div>
   );
 };

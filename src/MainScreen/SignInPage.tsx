@@ -64,19 +64,23 @@ const SignInPage: React.FC = () => {
       <div className="SignInContainer">
         <h1 className="Title">Admin Sign In</h1>
         <form className="SignInForm" onSubmit={handleSubmit}>
-          <label className="Username">
+          <label className="Username" htmlFor="signin-username">
             Username:
             <input
+              id="signin-username"
               type="text"
               name="username"
+              autoComplete="username"
               onChange={handleUsernameChange}
             />
           </label>
-          <label className="Password">
+          <label className="Password" htmlFor="signin-password">
             Password:
             <input
+              id="signin-password"
               type="password"
               name="password"
+              autoComplete="current-password"
               onChange={handlePasswordChange}
             />
           </label>
