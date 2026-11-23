@@ -28,10 +28,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 22
+      - name: Set up Node.js 26
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       - name: Install client dependencies
@@ -60,10 +60,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 22
+      - name: Set up Node.js 26
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: server/package-lock.json
 
