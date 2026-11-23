@@ -129,7 +129,7 @@ jobs:
       cancel-in-progress: false
     env:
       AWS_REGION: us-east-1
-      IMAGE_REPO: ${{ vars.BP_ECR_REGISTRY }}/beer-passport-admin-api
+      IMAGE_REPO: ${{ vars.BP_ECR_REGISTRY }}/beerpassport-admin-api
       MANAGED_NODE: ${{ vars.BP_SSM_NODE_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -144,7 +144,7 @@ jobs:
       - name: Report high-severity findings in release image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ vars.BP_ECR_REGISTRY }}/beer-passport-admin-api:${{ github.sha }}
+          image-ref: ${{ vars.BP_ECR_REGISTRY }}/beerpassport-admin-api:${{ github.sha }}
           vuln-type: os,library
           severity: HIGH
           exit-code: "0"
@@ -158,7 +158,7 @@ jobs:
       - name: Block critical findings in release image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ vars.BP_ECR_REGISTRY }}/beer-passport-admin-api:${{ github.sha }}
+          image-ref: ${{ vars.BP_ECR_REGISTRY }}/beerpassport-admin-api:${{ github.sha }}
           vuln-type: os,library
           severity: CRITICAL
           exit-code: "1"

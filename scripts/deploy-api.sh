@@ -9,7 +9,7 @@
 #   scripts/deploy-api.sh <registry/repository@sha256:digest>
 #
 # Examples:
-#   scripts/deploy-api.sh 149290600858.dkr.ecr.us-east-1.amazonaws.com/beer-passport-admin-api@sha256:<64 hex>
+#   scripts/deploy-api.sh 149290600858.dkr.ecr.us-east-1.amazonaws.com/beerpassport-admin-api@sha256:<64 hex>
 #   scripts/deploy-api.sh frankpizz10/beerpassport-admin-api@sha256:<64 hex>   (pre-migration Docker Hub image; rollback path)
 #
 # ECR references: ECR login tokens expire after 12 hours and the box has

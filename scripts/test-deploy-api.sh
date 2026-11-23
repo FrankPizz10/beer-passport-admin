@@ -55,7 +55,7 @@ echo ecr-login >> "$MOCK_STATE/order"
 [ "$MOCK_FAIL" != ecrlogin ]
 MOCK
 chmod +x "$tmp/bin/ecr-login-stub"
-ecr_ref="149290600858.dkr.ecr.us-east-1.amazonaws.com/beer-passport-admin-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ecr_ref="149290600858.dkr.ecr.us-east-1.amazonaws.com/beerpassport-admin-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 # ECR deploy succeeds: login runs before the pull, temp docker config is
 # cleaned up, and the Docker Hub reference is recorded as rollback target.

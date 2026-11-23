@@ -12,10 +12,12 @@ Credential sources, in order (first one found wins):
      /etc/beerpassport/secrets/aws-ecr-pull.env), used by the FALLBACK
      pull-only IAM user. Root-only, mode 0600. Expected keys:
      AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, optional AWS_SESSION_TOKEN.
-  2. The SSM Agent's shared credentials file (~/.aws/credentials,
-     profile "default"), used by the PRIMARY design: the host's managed
-     node IAM role extended with the pull-only policy. Those credentials
-     are temporary and are refreshed by the SSM Agent itself.
+  2. The SSM Agent's shared credentials file (the deploy runs as root,
+     so /root/.aws/credentials; profile "default", including its
+     session-token field), used by the PRIMARY path as configured on
+     the host: the managed node IAM role carries the pull-only policy.
+     Those credentials are temporary and are refreshed by the SSM
+     Agent itself.
 
 Either way there are no long-lived credentials in Git or in logs, and
 the ECR password (valid 12 hours) is never printed: it is piped to
