@@ -1,0 +1,120 @@
+# Install at .github/workflows/api-image.yml
+#
+# This workflow is delivered as a documentation copy under docs/ci-cd/workflows/
+# because the agent's GitHub App cannot push files under .github/workflows/
+# (403, verified 2026-11-23). A human installs it once by copying this file to
+# .github/workflows/api-image.yml (GitHub web UI or a local push). See
+# docs/ci-cd/RUNBOOK.md, "One-time setup checklist".
+#
+# What it does: when master changes under server/** (or on manual dispatch),
+# build the API image for linux/amd64 from server/Dockerfile and push it to
+# Amazon ECR under an immutable sha-<short commit> tag. The release is
+# identified by the image DIGEST printed at the end; tags are labels, never
+# the deployment reference. AWS authentication is GitHub OIDC only: there are
+# no static AWS keys in this repository or in GitHub secrets.
+name: API image
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'server/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for GitHub OIDC -> AWS
+
+# Never cancel an image build halfway through a push.
+concurrency:
+  group: api-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_NAME: beer-passport-admin-api
+
+jobs:
+  build-and-push:
+    name: Build and push API image (linux/amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute the immutable image tag
+        id: image-tag
+        run: |
+          short_sha="$(git rev-parse --short=7 HEAD)"
+          repository="${{ steps.ecr-login.outputs.registry }}/${ECR_REPOSITORY_NAME}"
+          echo "short_sha=${short_sha}" >> "$GITHUB_OUTPUT"
+          echo "repository=${repository}" >> "$GITHUB_OUTPUT"
+          echo "tag=${repository}:sha-${short_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # linux/amd64 only: the Lightsail instance is AMD64, and a single-arch
+      # build keeps the digest unambiguous. No `latest` tag is ever pushed;
+      # the ECR repository is configured with immutable tags as a backstop.
+      - name: Build and push the API image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          file: server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image-tag.outputs.tag }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Write the release manifest
+        run: |
+          built_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > release-manifest.json <<EOF
+          {
+            "repository": "${{ steps.image-tag.outputs.repository }}",
+            "digest": "${{ steps.build.outputs.digest }}",
+            "tag": "${{ steps.image-tag.outputs.tag }}",
+            "commit": "${{ github.sha }}",
+            "ref": "${{ github.ref }}",
+            "built_at": "${built_at}",
+            "workflow_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          cat release-manifest.json
+
+      - name: Upload the release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-manifest-${{ steps.image-tag.outputs.short_sha }}
+          path: release-manifest.json
+          if-no-files-found: error
+
+      - name: Summarize the release
+        run: |
+          {
+            echo "## API image built and pushed"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Repository | `${{ steps.image-tag.outputs.repository }}` |"
+            echo "| Tag | `${{ steps.image-tag.outputs.tag }}` |"
+            echo "| Digest | `${{ steps.build.outputs.digest }}` |"
+            echo "| Commit | `${{ github.sha }}` |"
+            echo ""
+            echo "Deploy this release by running the **Deploy API (approval gate)**"
+            echo "workflow with the digest above. Nothing has been deployed by this run."
+          } >> "$GITHUB_STEP_SUMMARY"

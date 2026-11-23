@@ -1,0 +1,22 @@
+# Build context for server/Dockerfile is server/. Keep the context tight and
+# keep every secret out of it: in November 2026 a baked .env in a public
+# Docker image leaked production credentials. The Dockerfile also uses narrow
+# COPY instructions; this file is the backstop, not the only defense.
+
+# Dependencies and build output are rebuilt inside the image.
+node_modules
+dist
+
+# Secrets and local configuration: never in the build context, never in a layer.
+.env
+.env.*
+!.env.example
+
+# Logs and test artifacts.
+*.log
+npm-debug.log*
+coverage
+test-results
+
+# VCS metadata.
+.git

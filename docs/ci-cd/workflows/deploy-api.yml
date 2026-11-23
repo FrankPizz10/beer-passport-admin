@@ -1,0 +1,162 @@
+# Install at .github/workflows/deploy-api.yml
+#
+# This workflow is delivered as a documentation copy under docs/ci-cd/workflows/
+# because the agent's GitHub App cannot push files under .github/workflows/
+# (403, verified 2026-11-23). A human installs it once by copying this file to
+# .github/workflows/deploy-api.yml (GitHub web UI or a local push). See
+# docs/ci-cd/RUNBOOK.md, "One-time setup checklist".
+#
+# What it does: this is the PRODUCTION APPROVAL GATE for an API release, and
+# nothing more. A human dispatches it with the exact image digest to release.
+# The job runs in the GitHub `production` environment, so it waits for the
+# required reviewer's approval before any step executes. It then verifies
+# that the digest (a) exists in Amazon ECR and (b) carries a sha-<commit> tag
+# whose commit is an ancestor of origin/master, and it emits the approved
+# release manifest plus the exact operator commands for the Lightsail box.
+#
+# It deliberately does NOT deploy: GitHub-hosted runner IPs are ephemeral and
+# the box accepts SSH only from Frank's /32, so the actual deployment is the
+# operator running scripts/deploy-api.sh on the box with the approved digest.
+# Approving this workflow approves a digest for release; it changes nothing
+# in production by itself.
+name: Deploy API (approval gate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: 'Immutable image digest to release (full sha256:<64 hex chars>)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write # required for GitHub OIDC -> AWS
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_NAME: beer-passport-admin-api
+  IMAGE_DIGEST: ${{ inputs.digest }}
+
+jobs:
+  approve-release:
+    name: Verify and approve an API release
+    runs-on: ubuntu-latest
+    # The approval gate: this job does not start until a required reviewer
+    # (Frank) approves the run in the `production` environment.
+    environment: production
+    steps:
+      - name: Validate the digest format
+        run: |
+          if [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The digest input must be a full sha256:<64 lowercase hex> digest, got: $IMAGE_DIGEST"
+            exit 1
+          fi
+          echo "Digest format OK: $IMAGE_DIGEST"
+
+      - name: Check out the repository (full history for the ancestry check)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make sure origin/master is current
+        run: git fetch origin master
+
+      - name: Configure AWS credentials via GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR (registry hostname for the release reference)
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Verify the digest exists in ECR and maps to a commit on origin/master
+        id: verify
+        run: |
+          set -euo pipefail
+          if ! tags="$(aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY_NAME" \
+              --image-ids imageDigest="$IMAGE_DIGEST" \
+              --query 'imageDetails[0].imageTags' --output text)"; then
+            echo "::error::Digest $IMAGE_DIGEST was not found in ECR repository $ECR_REPOSITORY_NAME"
+            exit 1
+          fi
+          if [ -z "$tags" ] || [ "$tags" = "None" ]; then
+            echo "::error::Digest $IMAGE_DIGEST exists but carries no tags; refusing to approve an untagged image"
+            exit 1
+          fi
+          commit=""
+          for tag in $tags; do
+            case "$tag" in
+              sha-*)
+                candidate="${tag#sha-}"
+                match="$(git rev-list origin/master | grep "^${candidate}" | head -n 1 || true)"
+                if [ -n "$match" ]; then
+                  commit="$match"
+                  break
+                fi
+                ;;
+            esac
+          done
+          if [ -z "$commit" ]; then
+            echo "::error::No sha-<commit> tag on digest $IMAGE_DIGEST resolves to a commit on origin/master (tags seen: $tags)"
+            exit 1
+          fi
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "Verified: $IMAGE_DIGEST is tagged ${tag} for commit ${commit} on origin/master"
+
+      - name: Write the approved release manifest
+        run: |
+          approved_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          repository="${{ steps.ecr-login.outputs.registry }}/${ECR_REPOSITORY_NAME}"
+          cat > approved-release.json <<EOF
+          {
+            "repository": "${repository}",
+            "digest": "${IMAGE_DIGEST}",
+            "image_ref": "${repository}@${IMAGE_DIGEST}",
+            "commit": "${{ steps.verify.outputs.commit }}",
+            "tags": "${{ steps.verify.outputs.tags }}",
+            "ref": "refs/heads/master",
+            "approved_at": "${approved_at}",
+            "approved_by": "${{ github.actor }}",
+            "workflow_run": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+          cat approved-release.json
+
+      - name: Upload the approved release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: approved-release-${{ steps.verify.outputs.commit }}
+          path: approved-release.json
+          if-no-files-found: error
+
+      - name: Write the operator instructions to the job summary
+        run: |
+          repository="${{ steps.ecr-login.outputs.registry }}/${ECR_REPOSITORY_NAME}"
+          {
+            echo "## Approved API release: operator steps"
+            echo ""
+            echo "Approved digest: \`${IMAGE_DIGEST}\` (commit \`${{ steps.verify.outputs.commit }}\`, approved by ${{ github.actor }})."
+            echo ""
+            echo "This workflow changed nothing in production. On the Lightsail box, run:"
+            echo ""
+            echo '```bash'
+            echo "scripts/deploy-api.sh ${repository}@${IMAGE_DIGEST}"
+            echo '```'
+            echo ""
+            echo "Then verify from the box and from Frank's network:"
+            echo ""
+            echo '```bash'
+            echo "curl -fs https://admin-api.beer-passport.com/admin-api/v1/health"
+            echo "# Unauthenticated queue request must answer 401 (not 503, not 200):"
+            echo "curl -s -o /dev/null -w '%{http_code}\n' https://admin-api.beer-passport.com/admin-api/v1/images/queue"
+            echo '```'
+            echo ""
+            echo "Only after the API is health-verified, publish the waiting Netlify"
+            echo "production deploy (see docs/ci-cd/RUNBOOK.md, Netlify ordering)."
+            echo "Rollback at any point: \`scripts/rollback-api.sh\` on the box."
+          } >> "$GITHUB_STEP_SUMMARY"
