@@ -92,7 +92,10 @@ connection limit of 20 (Prisma pools; the overview endpoint fans out).
 The script runs as a single transaction: any failure rolls back every
 change it made (attributes, password, membership revocations, grants).
 Run it as a plain `psql -f` script; do not wrap it in an outer
-transaction.
+transaction. Run it once as a PostgreSQL superuser: the one-time
+bootstrap creates and alters the role, revokes its memberships, and
+audits cluster-wide privileges, which requires a superuser. The viewer
+role itself remains fully restricted at runtime.
 Point `DATABASE_URL` at this role outside local development.
 `db/verify-readonly-role.sql` is the self-checking verification: run it
 connected as the role; every check prints PASS and any unexpected success

@@ -1,7 +1,13 @@
 -- Dedicated read-only runtime role for the BeerPassport Admin DB Viewer.
 --
--- Run this as the database owner (or a superuser) against the target
--- database, with the role password supplied out of band, never in the file:
+-- Run this ONCE, as a PostgreSQL superuser (for example the postgres
+-- role), against the target database, with the role password supplied
+-- out of band, never in the file. A superuser is required for this
+-- one-time bootstrap: the script creates and alters a role, revokes
+-- that role's memberships, audits cluster-wide database privileges and
+-- default privileges, and sets grants across schemas. The superuser
+-- requirement applies only to the operator running the bootstrap; the
+-- viewer role it creates remains fully restricted at runtime:
 --
 --   psql -d <database> -v viewer_password='<set-at-deploy-time>' \
 --        -f server/db/readonly-role.sql
@@ -22,9 +28,9 @@
 --   ownership check runs before any attribute or password change, so a
 --   failure leaves an existing role completely untouched. If the script
 --   fails on ownership, reassign the objects first (REASSIGN OWNED BY
---   beerpassport_admin_viewer TO <owner>, executed in every database
---   where the role owns objects, by an appropriately privileged
---   operator) and re-run this script.
+--   beerpassport_admin_viewer TO <new_owner>, executed in every
+--   database where the role owns objects, by a superuser) and re-run
+--   this script.
 --   Privilege audit: the script also FAILS CLOSED if the role holds any
 --   DIRECT privilege beyond the intended grants below, in this database
 --   (any schema; tables, columns, sequences, functions, types, and
@@ -35,8 +41,8 @@
 --   granted to PUBLIC are platform defaults, not direct grants to this
 --   role, and are outside this audit.
 -- Never run this with migration or application-owner credentials as the
--- viewer's runtime identity; this script is executed BY an owner ONCE to
--- create the separate, weaker runtime role.
+-- viewer's runtime identity; this script is executed BY a superuser ONCE
+-- to create the separate, weaker runtime role.
 --
 -- Atomicity: everything after the \gset runs in ONE transaction. Any
 -- failure (a fail-closed check, a missing table in a GRANT, anything)
@@ -254,10 +260,11 @@ GRANT SELECT (
   id, name, revoked, created_at, last_used_at, last_mod
 ) ON api_keys TO beerpassport_admin_viewer;
 
--- Belt and braces: if the executing owner has default privileges defined,
--- make sure none of them auto-grant anything to the viewer role. Run the
--- equivalent as every role that creates tables in this schema (in practice
--- the migration owner) so future tables never reach the viewer by default.
+-- Belt and braces: if the executing superuser has default privileges
+-- defined, make sure none of them auto-grant anything to the viewer role.
+-- Run the equivalent as every role that creates tables in this schema (in
+-- practice the migration owner) so future tables never reach the viewer
+-- by default.
 ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public
   REVOKE ALL ON TABLES FROM beerpassport_admin_viewer;
 

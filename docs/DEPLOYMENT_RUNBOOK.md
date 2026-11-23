@@ -43,9 +43,8 @@ the suite if a Prisma mutation method is ever called.
   completely untouched: no attributes or password altered, no
   memberships revoked, no privileges changed. Ownership is never
   reassigned automatically, because that is a destructive operator
-  decision. To remediate, an appropriately privileged operator
-  (superuser or the objects' owner) runs `REASSIGN OWNED BY
-  beerpassport_admin_viewer TO <owner>` in EVERY database where the
+  decision. To remediate, a superuser runs `REASSIGN OWNED BY
+  beerpassport_admin_viewer TO <new_owner>` in EVERY database where the
   role owns objects (REASSIGN OWNED works one database at a time), and
   then re-runs the role setup script. The script also audits DIRECT
   privileges before changing anything, and fails closed, listing every
@@ -132,10 +131,12 @@ approval before implementation. Do not make any bucket public.
 ## Steps requiring CTO approval (none performed)
 
 1. Create the `beerpassport_admin_viewer` role in the production
-   database (run `server/db/readonly-role.sql` as the owner with the
-   password set out of band, as a plain `psql -f` invocation; the
-   script is a single transaction, so a failed run changes nothing and
-   must not be wrapped in an outer transaction), then run the
+   database (run `server/db/readonly-role.sql` once as a PostgreSQL
+   superuser, the one-time bootstrap, with the password set out of
+   band, as a plain `psql -f` invocation; the script is a single
+   transaction, so a failed run changes nothing and must not be
+   wrapped in an outer transaction; the viewer role itself stays
+   restricted at runtime), then run the
    verification script as the role and record the output.
 2. Provision a Firebase service account (or equivalent) for the API's
    token verification in production, stored as deployment secrets.
