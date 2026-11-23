@@ -3,14 +3,13 @@
 #
 # OPERATOR-RUN ONLY. This script runs ON the Lightsail instance, never from
 # CI: GitHub-hosted runner IPs are ephemeral and the box accepts SSH only
-# from Frank's /32. The GitHub `Deploy API (approval gate)` workflow approves
-# a digest and prints this exact command; running it is the deployment.
+# from Frank's /32. Frank separately approves the digest and deployment.
 #
 # Usage:
 #   scripts/deploy-api.sh <registry/repository@sha256:digest>
 #
 # Example:
-#   scripts/deploy-api.sh 149290600858.dkr.ecr.us-east-1.amazonaws.com/beer-passport-admin-api@sha256:<64 hex>
+#   scripts/deploy-api.sh frankpizz10/beerpassport-admin-api@sha256:<64 hex>
 #
 # Behavior:
 #   * The image is pulled and run BY DIGEST. Tags are never trusted as a
@@ -34,7 +33,7 @@ set -euo pipefail
 CONTAINER_NAME="beerpassport-admin-api"
 ROLLBACK_CONTAINER_NAME="beerpassport-admin-api-rollback"
 BP_ADMIN_HOME="${BP_ADMIN_HOME:-/opt/beerpassport-admin}"
-ENV_FILE="${BP_ADMIN_HOME}/admin-api.env"
+ENV_FILE="${BP_ADMIN_ENV_FILE:-/etc/beerpassport/secrets/admin-api.env}"
 PREVIOUS_FILE="${BP_ADMIN_HOME}/previous-digest"
 CURRENT_FILE="${BP_ADMIN_HOME}/current-digest"
 HEALTH_URL="http://127.0.0.1:4100/admin-api/v1/health"
@@ -61,18 +60,6 @@ command -v curl >/dev/null 2>&1 || fail "curl is not installed on this box"
 [ -f "$ENV_FILE" ] || fail "env file not found: ${ENV_FILE} (create it on the box; its contents are never printed by this script)"
 mkdir -p "$BP_ADMIN_HOME"
 
-# If the registry is Amazon ECR and the AWS CLI is present, refresh the
-# short-lived ECR login for the box's pull-only IAM user. The login password
-# travels only through the pipe; it is never echoed or written to disk by
-# this script.
-REGISTRY_HOST="${NEW_REF%%/*}"
-if [[ "$REGISTRY_HOST" == *.dkr.ecr.*.amazonaws.com ]] && command -v aws >/dev/null 2>&1; then
-  ECR_REGION="$(echo "$REGISTRY_HOST" | cut -d. -f4)"
-  echo "Refreshing ECR login for ${REGISTRY_HOST} (region ${ECR_REGION})..."
-  aws ecr get-login-password --region "$ECR_REGION" \
-    | docker login --username AWS --password-stdin "$REGISTRY_HOST" >/dev/null
-fi
-
 # Record the current release as the rollback target BEFORE switching.
 PREVIOUS_REF=""
 if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
@@ -94,12 +81,30 @@ echo "Pulling ${NEW_REF} ..."
 docker pull "$NEW_REF"
 
 # Stop the current container and keep it, stopped, under the rollback name.
+SWITCH_STARTED=0
+OLD_RENAMED=0
+restore_previous() {
+  local status=$?
+  trap - ERR
+  if [ "$SWITCH_STARTED" = 1 ]; then
+    echo "Deployment failed; restoring the previous container." >&2
+    if [ "$OLD_RENAMED" = 1 ]; then
+      docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+      docker rename "$ROLLBACK_CONTAINER_NAME" "$CONTAINER_NAME" || true
+    fi
+    docker start "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  fi
+  exit "$status"
+}
+trap restore_previous ERR
 if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+  SWITCH_STARTED=1
   docker stop "$CONTAINER_NAME" >/dev/null
   if docker container inspect "$ROLLBACK_CONTAINER_NAME" >/dev/null 2>&1; then
     docker rm "$ROLLBACK_CONTAINER_NAME" >/dev/null
   fi
   docker rename "$CONTAINER_NAME" "$ROLLBACK_CONTAINER_NAME"
+  OLD_RENAMED=1
 fi
 
 start_container() {
@@ -125,9 +130,7 @@ wait_for_health() {
 }
 
 echo "Starting ${CONTAINER_NAME} from ${NEW_DIGEST} ..."
-start_container "$NEW_REF"
-
-if ! wait_for_health "$HEALTH_TRIES"; then
+if ! start_container "$NEW_REF" || ! docker network connect beerpassport-backend "$CONTAINER_NAME" || ! wait_for_health "$HEALTH_TRIES" || ! docker exec "$CONTAINER_NAME" node -e 'const {PrismaClient}=require("@prisma/client"); const p=new PrismaClient(); p.$queryRaw`SELECT 1 FROM beers LIMIT 1`.then(() => p.$disconnect()).catch(async e => { console.error(e.message); await p.$disconnect(); process.exitCode=1; });'; then
   echo "ERROR: new container did not become healthy after $((HEALTH_TRIES * HEALTH_INTERVAL_SECONDS))s." >&2
   echo "----- last logs of the failed container -----" >&2
   docker logs --tail 100 "$CONTAINER_NAME" 2>&1 || true
@@ -151,6 +154,8 @@ fi
 
 printf '%s\n' "$NEW_REF" > "${CURRENT_FILE}.tmp"
 mv "${CURRENT_FILE}.tmp" "$CURRENT_FILE"
+SWITCH_STARTED=0
+trap - ERR
 
 echo "Deploy succeeded."
 echo "  Running now:      ${NEW_REF}"

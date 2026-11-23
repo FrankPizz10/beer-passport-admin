@@ -1,0 +1,23 @@
+# Install at .github/workflows/deploy-api.yml through an approved PR.
+# Verification only: this workflow does not approve or deploy a release.
+name: Verify API release
+on:
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: "Image digest (sha256:<64 lowercase hex>)"
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      DIGEST: ${{ inputs.digest }}
+    steps:
+      - name: Validate digest format
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          echo "Candidate digest: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "Frank must separately approve this digest and the production deployment command." >> "$GITHUB_STEP_SUMMARY"

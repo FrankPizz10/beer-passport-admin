@@ -32,10 +32,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install client dependencies
@@ -64,10 +64,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
 
@@ -84,3 +84,18 @@ jobs:
       # live-database suite stays skipped without a test DATABASE_URL.
       - name: API tests
         run: npm test
+
+  image-scan:
+    name: API image vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build AMD64 image
+        run: docker build --pull --platform linux/amd64 -t beerpassport-admin-api:ci server/
+      - name: Scan OS and application dependencies
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: beerpassport-admin-api:ci
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          exit-code: '1'
