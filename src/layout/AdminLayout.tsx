@@ -87,6 +87,7 @@ const AdminLayout: React.FC = () => {
           <NavLink to="catalog/styles">Styles</NavLink>
           <NavLink to="catalog/collections">Collections</NavLink>
           <NavLink to="catalog/beverage-images">Beverage Images</NavLink>
+          <NavLink to="catalog/image-queue">Image Queue</NavLink>
           <div className="nav-section">User Data</div>
           <NavLink to="users">Users</NavLink>
           <div className="nav-section">Admin Accounts</div>
