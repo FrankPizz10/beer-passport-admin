@@ -1,17 +1,22 @@
 import React from "react";
 import { apiGet } from "../api/client";
 import { useApiData } from "../api/useApiData";
-import { OverviewCounts } from "../api/types";
+import { OverviewResponse } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
 
 const CatalogOverviewPage: React.FC = () => {
   const { data, loading, error, reload } = useApiData(
-    () => apiGet<OverviewCounts>("/admin/overview"),
+    () => apiGet<OverviewResponse>("/admin/overview"),
     []
   );
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error.message} onRetry={reload} />;
-  const entries = data ? Object.entries(data).sort(([a], [b]) => a.localeCompare(b)) : [];
+  // The overview body is { counts, ...counts }: the per-table numbers
+  // live under `counts`. Iterating the whole body would also yield the
+  // nested counts object, which React cannot render as a child.
+  const entries = data
+    ? Object.entries(data.counts).sort(([a], [b]) => a.localeCompare(b))
+    : [];
   return (
     <div>
       <h1>Catalog Overview</h1>

@@ -43,8 +43,9 @@ const privateBeerDetail = {
     status: "approved",
   },
   collections: [],
-  user_beer_count: 3,
+  user_beers_count: 3,
   liked_count: 1,
+  counts: { user_beers: 3, liked_user_beers: 1 },
 };
 
 const renderDetail = () =>

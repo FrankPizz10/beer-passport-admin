@@ -24,9 +24,12 @@ const BreweriesPage: React.FC = () => {
     <div>
       <h1>Breweries</h1>
       <div className="filters">
-        <input aria-label="Search breweries" placeholder="Search breweries" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
-        <input aria-label="Country" placeholder="Country" value={country} onChange={(e) => { setCountry(e.target.value); controls.setPage(1); }} />
-        <input aria-label="State" placeholder="State" value={state} onChange={(e) => { setState(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="breweries-filter-q">Search breweries</label>
+        <input id="breweries-filter-q" aria-label="Search breweries" placeholder="Search breweries" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="breweries-filter-country">Country</label>
+        <input id="breweries-filter-country" aria-label="Country" placeholder="Country" value={country} onChange={(e) => { setCountry(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="breweries-filter-state">State</label>
+        <input id="breweries-filter-state" aria-label="State" placeholder="State" value={state} onChange={(e) => { setState(e.target.value); controls.setPage(1); }} />
       </div>
       <DataTable<Brewery>
         loading={loading} rows={data?.results ?? []} sort={controls.sort} direction={controls.direction} onSortChange={controls.onSortChange}
@@ -37,7 +40,7 @@ const BreweriesPage: React.FC = () => {
           { key: "city", label: "City", render: (r) => fmtVal(r.city) },
           { key: "state", label: "State", render: (r) => fmtVal(r.state) },
           { key: "country", label: "Country", render: (r) => fmtVal(r.country) },
-          { key: "beer_count", label: "Beers", sortable: true },
+          { key: "beer_count", label: "Beers" },
           { key: "last_mod", label: "Last Modified", sortable: true, render: (r) => fmtDate(r.last_mod) },
         ]}
       />

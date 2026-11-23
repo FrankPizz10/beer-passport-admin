@@ -37,19 +37,24 @@ const BeersPage: React.FC = () => {
     <div>
       <h1>Beers</h1>
       <div className="filters">
+        <label className="visually-hidden" htmlFor="beers-filter-q">Search beers</label>
         <input
-          aria-label="Search beers"
+ id="beers-filter-q"          aria-label="Search beers"
           placeholder="Search beers"
           value={q}
           onChange={(e) => { setQ(e.target.value); controls.setPage(1); }}
         />
-        <input aria-label="Brewery ID" placeholder="Brewery ID" value={breweryId}
+        <label className="visually-hidden" htmlFor="beers-filter-brewery">Brewery ID</label>
+        <input id="beers-filter-brewery" aria-label="Brewery ID" placeholder="Brewery ID" value={breweryId}
           onChange={(e) => { setBreweryId(e.target.value); controls.setPage(1); }} />
-        <input aria-label="Style ID" placeholder="Style ID" value={styleId}
+        <label className="visually-hidden" htmlFor="beers-filter-style">Style ID</label>
+        <input id="beers-filter-style" aria-label="Style ID" placeholder="Style ID" value={styleId}
           onChange={(e) => { setStyleId(e.target.value); controls.setPage(1); }} />
-        <input aria-label="Category ID" placeholder="Category ID" value={categoryId}
+        <label className="visually-hidden" htmlFor="beers-filter-category">Category ID</label>
+        <input id="beers-filter-category" aria-label="Category ID" placeholder="Category ID" value={categoryId}
           onChange={(e) => { setCategoryId(e.target.value); controls.setPage(1); }} />
-        <select aria-label="Discontinued" value={discontinued}
+        <label className="visually-hidden" htmlFor="beers-filter-discontinued">Discontinued</label>
+        <select id="beers-filter-discontinued" aria-label="Discontinued" value={discontinued}
           onChange={(e) => { setDiscontinued(e.target.value); controls.setPage(1); }}>
           <option value="">Any status</option>
           <option value="true">Discontinued</option>

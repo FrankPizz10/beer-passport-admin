@@ -32,7 +32,7 @@ const BeerDetailPage: React.FC = () => {
         <div><span className="field-label">Brewery</span>{data.brewery ? <Link to={`/admin/catalog/breweries/${data.brewery.id}`}>{data.brewery.name}</Link> : "None"}</div>
         <div><span className="field-label">Style</span>{data.style ? <Link to={`/admin/catalog/styles/${data.style.id}`}>{data.style.name}</Link> : "None"}</div>
         <div><span className="field-label">Category</span>{data.category ? <Link to={`/admin/catalog/categories/${data.category.id}`}>{data.category.name}</Link> : "None"}</div>
-        <div><span className="field-label">Users who tried it</span>{data.user_beer_count}</div>
+        <div><span className="field-label">Users who tried it</span>{data.user_beers_count}</div>
         <div><span className="field-label">Liked count</span>{data.liked_count}</div>
       </div>
 
