@@ -23,8 +23,10 @@ const BeverageImagesPage: React.FC = () => {
     <div>
       <h1>Beverage Images</h1>
       <div className="filters">
-        <input aria-label="Beverage ID" placeholder="Beverage (beer) ID" value={beverageId} onChange={(e) => { setBeverageId(e.target.value); controls.setPage(1); }} />
-        <select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); controls.setPage(1); }}>
+        <label className="visually-hidden" htmlFor="images-filter-beverage">Beverage ID</label>
+        <input id="images-filter-beverage" aria-label="Beverage ID" placeholder="Beverage (beer) ID" value={beverageId} onChange={(e) => { setBeverageId(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="images-filter-status">Status</label>
+        <select id="images-filter-status" aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); controls.setPage(1); }}>
           <option value="">Any status</option>
           <option value="approved">Approved</option>
           <option value="pending">Pending</option>
@@ -36,7 +38,7 @@ const BeverageImagesPage: React.FC = () => {
         emptyMessage="No beverage images found. The beverage_images table is empty in this database, or no rows match the filters."
         columns={[
           { key: "id", label: "ID", sortable: true },
-          { key: "beverage_id", label: "Beer", render: (r) => <Link to={`/admin/catalog/beers/${r.beverage_id}`}>{r.beer?.name || r.beverage_id}</Link> },
+          { key: "beverage_id", label: "Beer", render: (r) => <Link to={`/admin/catalog/beers/${r.beverage_id}`}>{r.beverage_id}</Link> },
           { key: "status", label: "Status" },
           { key: "source_type", label: "Source Type", render: (r) => fmtVal(r.source_type) },
           { key: "source_url", label: "Source URL", render: (r) => fmtVal(r.source_url) },
