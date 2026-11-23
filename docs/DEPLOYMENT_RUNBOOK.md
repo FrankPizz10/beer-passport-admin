@@ -220,3 +220,108 @@ The viewer is additive and read-only. Rollback is: stop the API process,
 revert the client static deploy to the previous build, and (if created)
 `DROP ROLE beerpassport_admin_viewer` after revoking its grants. No data
 migration is involved at any point.
+
+## Image approval workflow
+
+Status: implemented, NOT deployed. Every step in this section requires
+its own CTO approval, like the steps above; nothing here has been run
+against production.
+
+### What it is
+
+Catalog images render only from `beverage_images` rows with status
+'approved', and until now nothing could create or decide candidate
+rows. The workflow adds a review queue with a human quality gate:
+
+- **Candidate loader** (`server/scripts/load-image-candidates.ts`,
+  operator-run): inserts PENDING candidate rows for beverages that
+  already exist, verifying hosted URLs first (HEAD, ranged-GET
+  fallback) and recording `source_content_type`, `source_checked_at`,
+  and `source_check_status` ('image' | 'not_image' | 'unreachable' |
+  'unchecked' for private keys). Candidates belonging to a staged
+  catalog batch arrive with that batch's import instead.
+- **Queue + decisions API** (read client, viewer role): GET
+  `/admin-api/v1/images/queue` (pending candidates with beverage and
+  brewery names and provenance; `image_url` only when the direct
+  locator is a public http(s) URL; `has_private_image` for private
+  objects; the raw storage key is never serialized), GET
+  `/admin-api/v1/images/decisions` (the audit list, newest first), and
+  GET `/admin-api/v1/images/:id/preview-url` (presigned preview of a
+  PENDING private image, same 900s cap as the approved-image endpoint).
+- **Decision endpoints** (the API's only writes): POST
+  `/admin-api/v1/images/:id/approve` and `/reject`, behind the same
+  admin auth. One transaction updates the row (status, `verified_at`
+  on approve only, `reviewed_by` / `reviewed_by_uid` / `reviewed_at`)
+  and inserts an `image_review_events` audit row. Approving a
+  candidate whose source check is 'not_image' or 'unreachable' is
+  refused with 422; deciding an already-decided row returns 409.
+- **Client**: the Image Queue page (Catalog section). Approve stays
+  disabled until the candidate's image has actually loaded in the
+  reviewer's browser; a failed load shows an error state and Approve
+  stays disabled. Recent decisions are listed under the queue.
+
+### Permission model
+
+- `beerpassport_admin_viewer` is unchanged and stays SELECT-only. Its
+  bootstrap script additionally grants SELECT on `image_review_events`
+  so the decisions list can be read; existing deployments need only
+  `GRANT SELECT ON image_review_events TO beerpassport_admin_viewer;`
+  after the migration.
+- `beerpassport_admin_approver` (new, `server/db/approval-role.sql`)
+  is the API's only write identity, used only through
+  `DATABASE_URL_WRITE`: SELECT (id, beverage_id, status) and UPDATE
+  (status, verified_at, reviewed_by, reviewed_by_uid, reviewed_at,
+  updated_at) on `beverage_images`, INSERT + SELECT on
+  `image_review_events`, USAGE on its id sequence, nothing else. Same
+  restricted attributes as the viewer, CONNECTION LIMIT 5. The
+  source-level read-only guard now scopes Prisma mutation calls to
+  exactly `src/writeDb.ts` and `src/routes/imageApprovals.ts`.
+- The loader connects as `DATABASE_URL_ADMIN_LOADER`, the
+  operator/migration identity, never an API role.
+- Kill switch: unset `DATABASE_URL_WRITE` and restart the API; the
+  decision endpoints answer 503 and everything else is unaffected.
+
+### Deployment sequence (each step separately CTO-approved)
+
+1. Apply `server/db/migrations/001-image-approval.sql` (additive:
+   six columns on `beverage_images`, new `image_review_events` table).
+   The canonical schema change must also be mirrored in
+   beer-passport-server; until then `scripts/check-schema-drift.sh`
+   reports drift, which is expected.
+2. As superuser, apply the one-grant viewer update above (existing
+   deployments) or the full `readonly-role.sql` (fresh ones), then
+   `server/db/approval-role.sql` with `-v approver_password=...` set
+   out of band; run `server/db/verify-approval-role.sql` AS the
+   approver role and record the output.
+3. Set `DATABASE_URL_WRITE` on the API host to the approver role's
+   URL (secret handling as for the viewer URL), deploy the API.
+4. Deploy the client build (the Image Queue page needs no new client
+   configuration; it uses the same API base URL).
+5. Load candidates with the loader only against an approved target,
+   then review them in the queue.
+
+### Verification
+
+- API health and the existing viewer pages behave exactly as before
+  with `DATABASE_URL_WRITE` unset (decision endpoints answer 503).
+- With it set: sign in as an admin, open Image Queue, load one test
+  candidate, preview it, approve it, confirm it leaves the queue,
+  appears in Recent decisions with the decider's name, and renders on
+  the beverage's catalog page once approved.
+- `verify-readonly-role.sql` still passes 13/13 as the viewer;
+  `verify-approval-role.sql` passes as the approver (allowed update
+  and event insert succeed; every other write is denied).
+
+### Rollback
+
+Revert the API and client deploys. Unset `DATABASE_URL_WRITE` to
+disable approvals instantly while keeping the queue readable. Then,
+only if a full teardown is wanted: `DROP ROLE
+beerpassport_admin_approver` after revoking its grants, and the
+migration's down steps (drop `image_review_events`, drop the six
+columns `reviewed_by`, `reviewed_by_uid`, `reviewed_at`,
+`source_content_type`, `source_checked_at`, `source_check_status`
+from `beverage_images`). `beverage_images` itself is untouched by the
+migration and is empty in production today, so the down steps lose no
+production data; any decisions recorded in `image_review_events`
+should be exported first if they need keeping.

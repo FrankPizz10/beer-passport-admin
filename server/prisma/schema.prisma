@@ -83,22 +83,57 @@ model beers {
 }
 
 model beverage_images {
-  id           Int       @id @default(autoincrement())
-  beverage_id  Int
-  source_type  String    @default("") @db.VarChar(50)
-  source_url   String    @default("") @db.VarChar(1024)
-  storage_key  String    @default("") @db.VarChar(512)
-  license_type String    @default("") @db.VarChar(100)
-  attribution  String    @default("") @db.VarChar(512)
-  license_url  String    @default("") @db.VarChar(1024)
-  status       String    @default("pending") @db.VarChar(20)
-  verified_at  DateTime? @db.Timestamp(0)
-  created_at   DateTime  @default(now()) @db.Timestamp(0)
-  updated_at   DateTime  @default(now()) @updatedAt @db.Timestamp(0)
-  beers        beers     @relation(fields: [beverage_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_beverage_images_beer_id")
+  id                  Int       @id @default(autoincrement())
+  beverage_id         Int
+  source_type         String    @default("") @db.VarChar(50)
+  source_url          String    @default("") @db.VarChar(1024)
+  storage_key         String    @default("") @db.VarChar(512)
+  license_type        String    @default("") @db.VarChar(100)
+  attribution         String    @default("") @db.VarChar(512)
+  license_url         String    @default("") @db.VarChar(1024)
+  status              String    @default("pending") @db.VarChar(20)
+  verified_at         DateTime? @db.Timestamp(0)
+  // Image approval workflow (migration 001 in server/db/migrations):
+  // who decided this row's status and when, and the candidate loader's
+  // check that a hosted storage_key URL really serves an image
+  // (source_check_status: 'image' | 'not_image' | 'unreachable' |
+  // 'unchecked'). Canonical change lives in beer-passport-server; see
+  // server/db/migrations/001-image-approval.sql.
+  reviewed_by         Int?
+  reviewed_by_uid     String?   @db.VarChar(128)
+  reviewed_at         DateTime? @db.Timestamp(0)
+  source_content_type String?   @db.VarChar(100)
+  source_checked_at   DateTime? @db.Timestamp(0)
+  source_check_status String?   @db.VarChar(20)
+  created_at          DateTime  @default(now()) @db.Timestamp(0)
+  updated_at          DateTime  @default(now()) @updatedAt @db.Timestamp(0)
+  beers               beers     @relation(fields: [beverage_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_beverage_images_beer_id")
+  reviewer            users?    @relation("beverage_images_reviewed_by", fields: [reviewed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_beverage_images_reviewed_by")
+  review_events       image_review_events[]
 
   @@index([beverage_id], map: "fk_beverage_images_beer_id_idx")
   @@index([status], map: "beverage_images_status")
+}
+
+// Append-only audit trail for image approval decisions: one row per
+// approve/reject, written in the same transaction as the status change
+// by the beerpassport_admin_approver role. Created by migration 001 in
+// server/db/migrations; canonical change lives in beer-passport-server.
+model image_review_events {
+  id                Int             @id @default(autoincrement())
+  beverage_image_id Int
+  beverage_id       Int
+  action            String          @db.VarChar(10)
+  from_status       String          @db.VarChar(20)
+  to_status         String          @db.VarChar(20)
+  admin_user_id     Int?
+  admin_uid         String?         @db.VarChar(128)
+  note              String?         @db.Text
+  created_at        DateTime        @default(now()) @db.Timestamp(0)
+  beverage_image    beverage_images @relation(fields: [beverage_image_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_image_review_events_image_id")
+  admin_user        users?          @relation("image_review_events_admin_user", fields: [admin_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_image_review_events_admin_user_id")
+
+  @@index([beverage_image_id], map: "image_review_events_beverage_image_id_idx")
 }
 
 model breweries {
@@ -180,6 +215,8 @@ model users {
   user_badges                   user_badges[]
   user_beers                    user_beers[]
   notifications                 notifications[]
+  beverage_images_reviewed      beverage_images[]   @relation("beverage_images_reviewed_by")
+  image_review_events           image_review_events[] @relation("image_review_events_admin_user")
 }
 
 model collections {
