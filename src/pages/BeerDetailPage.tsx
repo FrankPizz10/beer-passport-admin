@@ -4,6 +4,7 @@ import { apiGet } from "../api/client";
 import { useApiData } from "../api/useApiData";
 import { BeerDetail } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
+import PrivateBeerImage from "../components/PrivateBeerImage";
 import { fmtBool, fmtDate, fmtVal, initialsFor } from "../components/helpers";
 
 const BeerDetailPage: React.FC = () => {
@@ -36,9 +37,13 @@ const BeerDetailPage: React.FC = () => {
       </div>
 
       <h2>Image</h2>
-      {data.image_url && data.image_kind !== "initials" ? (
+      {data.image_kind !== "initials" ? (
         <div className="image-section">
-          <img className="beer-image" src={data.image_url} alt={data.name} />
+          {data.image_url ? (
+            <img className="beer-image" src={data.image_url} alt={data.name} />
+          ) : (
+            <PrivateBeerImage beverageId={data.id} name={data.name} />
+          )}
           <div className="detail-grid">
             <div><span className="field-label">Image kind</span>{data.image_kind}</div>
             <div><span className="field-label">Tier</span>{fmtVal(prov?.tier)}</div>

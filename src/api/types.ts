@@ -61,6 +61,13 @@ export interface BeerDetail extends Beer {
   liked_count: number;
 }
 
+// Response of GET /admin-api/v1/images/:beverageId: a short-lived
+// presigned GET URL for an approved private image, plus its expiry.
+export interface PresignedImageResponse {
+  url: string;
+  expires_at: string;
+}
+
 export interface Brewery {
   id: number;
   name: string;

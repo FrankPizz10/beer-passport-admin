@@ -116,17 +116,80 @@ publicly without the Firebase admin-claim check in front of every route,
 which is already enforced in code, plus network-level restriction to
 trusted sources as defense in depth.
 
-## Image storage: open item, design only
+## Image storage
 
 Approved product images whose only locator is a private `storage_key`
-currently render as kind `product` with no image (see above). To display
-them later, the approved design is a backend endpoint
-`GET /admin-api/v1/images/:beverageId` that, after the normal admin auth,
-returns a short-lived (minutes) presigned GET URL for the approved
-image's object, generated server-side with an identity holding
-`s3:GetObject` on the image prefix only. That identity and any bucket
-policy change are AWS infrastructure changes and require separate CTO
-approval before implementation. Do not make any bucket public.
+render as kind `product` with no image URL in list and detail payloads;
+the raw key is never emitted. Release 1.0 implements the display path:
+the backend endpoint `GET /admin-api/v1/images/:beverageId`, behind the
+normal admin auth, returns a short-lived presigned GET URL for the
+approved image's object, generated server-side (see "Viewer release
+1.0" below). The signing identity and any bucket policy change are AWS
+infrastructure changes and require separate CTO approval before
+provisioning. Do not make any bucket public.
+
+## Viewer release 1.0
+
+Release contents (branch `release/viewer-1.0`, built on the
+post-merge hardening branch):
+
+- Everything in the merged viewer (PR #7) and the hardening branch
+  (PR #8): the read-only catalog, user data, and admin account sections;
+  the dedicated `beerpassport_admin_viewer` database role package; and
+  the rule that a bare `storage_key` is never emitted as an image URL.
+- New: the authenticated private-image path described below. Nothing in
+  this release deploys itself; every production step remains in
+  "Steps requiring CTO approval".
+
+### Private images: presigned URL endpoint
+
+- Endpoint: `GET /admin-api/v1/images/:beverageId`, behind the same
+  `decodeAdminToken` middleware as every other route (401 without a
+  token, 403 without the admin claim, 401 when the verified identity
+  has no database user row).
+- Behavior: finds the beverage's approved `beverage_images` rows in
+  lowest-id-first order (the resolver's order) and signs the first one
+  whose `storage_key` is a bare private object key. Responds 404 when
+  no such row exists. The response is `{ url, expires_at }` with a
+  presigned GET URL whose lifetime is at most 900 seconds. The raw
+  `storage_key` never appears in the response.
+- Signing: AWS SDK for JavaScript v3 (`@aws-sdk/client-s3`,
+  `@aws-sdk/s3-request-presigner`), server-side only. Configuration is
+  by environment variable name (see `server/.env.example`):
+  `ADMIN_IMAGE_BUCKET`, `ADMIN_IMAGE_REGION` (`AWS_REGION` fallback),
+  with credentials resolved through the SDK default chain. When the
+  bucket or region is unset, the endpoint answers 500 and the rest of
+  the viewer is unaffected.
+- Client: the beverage detail view requests this endpoint when the
+  detail payload reports kind `product` with no `image_url`, renders
+  the returned URL, and keeps the initials fallback on any failure.
+  Public http(s) image URLs behave exactly as before.
+- Identity requirement (CTO-approval provisioning step, NOT done): the
+  signing identity must hold `s3:GetObject` only, scoped to the image
+  objects in `ADMIN_IMAGE_BUCKET`. No other S3 action, no bucket policy
+  change, and the bucket stays private. Provisioning this identity is
+  step 6 of "Steps requiring CTO approval" below.
+
+### Pre-release checklist
+
+- [ ] Server suite, client suite, `tsc`, and the client production
+      build all pass on the release branch (recorded in the release
+      commit message).
+- [ ] Read-only role package applied in production by a superuser and
+      verified 13 of 13 (CTO step 1), with `DATABASE_URL` pointed at
+      `beerpassport_admin_viewer`.
+- [ ] Firebase service account for token verification provisioned as
+      deployment secrets (CTO step 2); one admin-claim sign-in verified
+      end to end.
+- [ ] API host, DNS, and TLS decided and provisioned (CTO step 3);
+      `/admin-api/v1/health` answers on the production hostname.
+- [ ] If private images are in scope for this release: the
+      `s3:GetObject`-only signing identity provisioned (CTO step 6),
+      `ADMIN_IMAGE_BUCKET` and `ADMIN_IMAGE_REGION` set in the API's
+      environment, and one approved private image verified end to end
+      in the beverage detail view.
+- [ ] Rollback path confirmed (see "Rollback"): stop the API process,
+      revert the client static deploy, drop the viewer role if created.
 
 ## Steps requiring CTO approval (none performed)
 
@@ -146,7 +209,10 @@ approval before implementation. Do not make any bucket public.
 5. Deploy the client build and the API; smoke test `/admin-api/v1/health`
    and one admin-claim sign-in end to end.
 6. Separately, if private-storage images are wanted in the viewer:
-   approve the presigned-URL endpoint and its read-only S3 identity.
+   provision the read-only S3 signing identity for the presigned-URL
+   endpoint implemented in release 1.0 (`s3:GetObject` only, scoped to
+   the image objects; see "Viewer release 1.0"). The endpoint code is
+   implemented; only the AWS identity is outstanding.
 
 ## Rollback
 
