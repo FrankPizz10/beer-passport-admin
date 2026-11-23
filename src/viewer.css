@@ -36,6 +36,18 @@
 .tabs .tab.active { background: #e3e3e3; font-weight: 700; }
 .masked-value { background: none; border: none; font: inherit; color: #0645ad; cursor: pointer; padding: 0; }
 .note { margin-bottom: 10px; color: #444; }
+.queue-list { display: flex; flex-direction: column; gap: 14px; }
+.queue-card { border: 1px solid #ccc; border-radius: 6px; padding: 12px; background: #fff; }
+.queue-card-main { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.queue-preview { min-width: 140px; }
+.queue-preview-failed { border: 1px solid #b3261e; color: #b3261e; border-radius: 6px; padding: 10px; max-width: 280px; margin-top: 8px; }
+.queue-meta { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 4px; word-break: break-word; }
+.check-badge { align-self: flex-start; }
+.check-badge-bad { border-color: #b3261e; color: #b3261e; }
+.queue-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.queue-actions input { flex: 1; min-width: 180px; padding: 6px 8px; border: 1px solid #aaa; border-radius: 4px; }
+.queue-actions button { padding: 5px 12px; border: 1px solid #888; border-radius: 4px; background: #fff; cursor: pointer; }
+.queue-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* --- Reliability / mobile pass (AI-assisted) --- */
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -53,8 +65,8 @@
 /* Touch targets: at least 44px tall on coarse pointers (phones). */
 @media (pointer: coarse) {
   .pagination button, .admin-header button, .state-box button, .tabs .tab,
-  .error-boundary-actions button { min-height: 44px; padding: 10px 16px; }
-  .filters input, .filters select, .pagination select { min-height: 44px; }
+  .error-boundary-actions button, .queue-actions button { min-height: 44px; padding: 10px 16px; }
+  .filters input, .filters select, .pagination select, .queue-actions input { min-height: 44px; }
   .admin-sidebar a { min-height: 44px; display: flex; align-items: center; }
   .sort-button { min-height: 44px; padding: 6px 4px; }
   .masked-value { min-height: 44px; }
@@ -72,7 +84,7 @@
   .admin-sidebar a { padding: 10px 8px; }
   .admin-main { padding: 12px; }
   /* 16px form text prevents iOS Safari focus zoom. */
-  .filters input, .filters select, .pagination select { font-size: 16px; }
+  .filters input, .filters select, .pagination select, .queue-actions input { font-size: 16px; }
 }
 
 /* Phone layout: single-column grids, tables become labeled cards. */

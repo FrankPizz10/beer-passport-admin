@@ -16,6 +16,7 @@ import StyleDetailPage from "./pages/StyleDetailPage";
 import CollectionsPage from "./pages/CollectionsPage";
 import CollectionDetailPage from "./pages/CollectionDetailPage";
 import BeverageImagesPage from "./pages/BeverageImagesPage";
+import ImageQueuePage from "./pages/ImageQueuePage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import AdminAccountsPage from "./pages/AdminAccountsPage";
@@ -41,6 +42,7 @@ function AppRoutes() {
           <Route path="catalog/collections" element={<CollectionsPage />} />
           <Route path="catalog/collections/:id" element={<CollectionDetailPage />} />
           <Route path="catalog/beverage-images" element={<BeverageImagesPage />} />
+          <Route path="catalog/image-queue" element={<ImageQueuePage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:id" element={<UserDetailPage />} />
           <Route path="admin/accounts" element={<AdminAccountsPage />} />
