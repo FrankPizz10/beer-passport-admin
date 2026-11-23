@@ -1,27 +1,28 @@
-# Admin API delivery runbook
+# Admin API CI/CD and release runbook
 
-Status: proposed. PR approval does not authorize production actions.
+PR approval does not activate the pipeline or authorize infrastructure changes. Frank merges pull requests. Database migrations remain separate approved changes.
 
-## Scope and current state
+## Automatic release after setup
 
-GitHub Actions workflows live under `.github/workflows/`; the matching files under `docs/ci-cd/workflows/` are reference copies. They run only after this PR is merged. The repository uses the public Docker Hub repository `frankpizz10/beerpassport-admin-api`. Images must never contain secrets. ECR is deferred. The running Lightsail API predates image approval; the Netlify client already exposes Image Queue.
+The active workflow is `.github/workflows/ci.yml`. Pull requests run client and API checks and build and scan an AMD64 image on GitHub-hosted runners. A master push or manual master dispatch runs those checks first. When `BP_AUTO_DEPLOY_ENABLED=true`, the deploy job rebuilds and scans the release image, pushes it to the existing public Docker Hub repository using a repository-scoped Docker Hub token, captures the digest, and invokes version 1 of the fixed `BeerPassportDeployAdmin` Systems Manager document. The document accepts only a SHA-256 digest and invokes `/opt/beerpassport-admin/deploy-api.sh` with a fixed repository. CI does not run migrations. Concurrent deployment jobs are serialized; a job checks that its commit is still master before publishing and before requesting deployment. CI reports SSM execution failures. The API release is therefore automatic after merge only once the setup below has been explicitly approved and completed.
 
-## CI and image checks
+Lightsail must be registered as a Systems Manager hybrid managed node. AWS lists no hybrid-node registration charge and $0.002 per Run Command invocation as of 2026-11-23; ten deployments cost about $0.02 in command charges. GitHub Actions minutes and network bandwidth depend on plan and usage. Verify current pricing before setup. Install the reviewed deployment script at `/opt/beerpassport-admin/deploy-api.sh` as root-owned, not writable by the application or its runtime accounts. The existing root-only env file is `/etc/beerpassport/secrets/admin-api.env`. The script preserves localhost port binding, attaches the internal database network, verifies HTTP liveness and a database read, and attempts rollback on failure. Rehearse startup, network and DB failures on disposable infrastructure before enabling.
 
-`ci.yml` checks client and server on PRs and master pushes and builds and scans the AMD64 image with Trivy for HIGH and CRITICAL operating-system and language-package vulnerabilities. Scan failures block the job; investigate findings, including unfixed ones, rather than disabling the gate. `api-image.yml` is an additional manual or server-change build and scan; it does not publish. Workflows must be merged before either check runs. Track Node 22 security updates and rebuild regularly; a floating base tag does not update an existing image.
+## Required one-time setup (each production change requires Frank's approval)
 
-## Release and approval
+1. Merge this PR. Keep `BP_AUTO_DEPLOY_ENABLED` absent or false until all setup and the first image migration are complete. Do not assume a workflow environment automatically enforces an approval.
+2. Create a Docker Hub access token restricted to pushing only `frankpizz10/beerpassport-admin-api`. Add `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as GitHub Actions secrets. The repository is public: image source and layers are public, so never include secrets in the build context or layers.
+3. Install and register SSM Agent on Lightsail through a one-node hybrid activation and a dedicated minimal managed-node IAM role. Record the resulting `mi-...` ID in GitHub variable `BP_SSM_NODE_ID`; do not expose activation codes.
+4. Create the custom document from `docs/ci-cd/ssm-deploy-document.json` and install the reviewed root-owned deploy script on the host. Restrict its file ownership and permissions; the SSM document must not accept arbitrary command text.
+5. Set up GitHub OIDC with `aud=sts.amazonaws.com` and the exact `repo:FrankPizz10/beer-passport-admin:ref:refs/heads/master` subject, checking the actual token subject for this repository. Use the example trust and policy files in this directory as a starting point; replace the managed-node placeholder and verify the actual token subject and IAM scope. Use a dedicated deploy role. Permit `ssm:SendCommand` only for the specific `BeerPassportDeployAdmin` document and managed-node ARN; permit the minimum read actions needed for command status. Do not grant document mutation, IAM administration, generic shell documents, or unrelated nodes. Store its ARN in `BP_DEPLOY_ROLE_ARN`. Protect master and workflow modifications.
+6. Test the pinned document version and IAM policy with a harmless disposable node; verify denial for other documents, nodes, malformed digests, and non-master OIDC subjects. Never test with production mutations without approval.
+7. Apply the separately reviewed image-workflow migration, viewer grant, and approver role only after a verified backup and explicit approval. Verify the role, securely set `DATABASE_URL_WRITE`, and confirm the first release has a rollback plan.
+8. Explicitly approve and set `BP_AUTO_DEPLOY_ENABLED=true`; dispatch the workflow on master or merge a change. Verify the published digest, SSM result, HTTPS health, authenticated queue and database access. Monitor and document rollback.
 
-This is an operator-run deployment, not automatic deployment. After Frank merges, build from the exact commit with `docker buildx build --platform linux/amd64 --load -f server/Dockerfile -t beerpassport-admin-api:<commit> server/`. Scan the image; inspect the final image for secrets. Obtain Frank's approval before tagging and pushing to the public Docker Hub repository. Record the immutable registry digest and verify the image corresponds to the reviewed commit. Frank separately approves the digest and exact production command. The `deploy-api.yml` template validates digest format only; it neither verifies image provenance nor records an approval.
+## Netlify ordering
 
-Place the reviewed deploy and rollback scripts on Lightsail only after approval. The operator runs `scripts/deploy-api.sh frankpizz10/beerpassport-admin-api@sha256:<digest>` on the host. The script pulls before stopping the current container, starts on Docker's default bridge with port 4100 bound to localhost, connects `beerpassport-backend`, verifies liveness and a read-only database query, and attempts to restore the previous container on failure. Runtime configuration is read from `/etc/beerpassport/secrets/admin-api.env`; never print or commit it. `scripts/rollback-api.sh` is the manual rollback path. Rehearse both paths on disposable containers before production.
+Netlify currently publishes master independently and can outrun the API. This PR does not control Netlify. Until a separate coordinated client release is implemented, maintain client compatibility with the currently deployed API or hold Netlify publishing and release the API first. Merge approval alone does not make an incompatible simultaneous client/API change safe.
 
-The existing Netlify site is independently deployed. Before publishing a client that requires new API behavior, deploy and verify the compatible API first, then explicitly approve publishing the client. Prevent auto-publication or maintain backward compatibility; this ordering is an operator rule and is not enforced by these templates.
+## Recovery
 
-## First image workflow release
-
-The image queue needs migration 001, the viewer grant, restricted approver role and verification, `DATABASE_URL_WRITE`, and an updated API. Take and verify a current backup; review and separately approve each database change, role/secret change, image publication, and deployment command. Verify the queue as a signed-in admin and use a separately approved candidate to check decisions. Never use an unauthenticated 401 response as proof that the authenticated queue or write path works.
-
-## Recovery and costs
-
-Keep the existing API container until the new service passes both checks. If automatic restoration fails, use the retained container and investigate; do not assume a restart succeeded. Images are public on Docker Hub; verify all layers are free of secrets before upload. Scan and build minutes and storage depend on usage and account plan. No ECR objects or AWS users are required for this phase.
+The script records the prior image and retains the old container. On a failed switch it attempts restoration; confirm the old service is healthy. For a later rollback use the reviewed rollback script after Frank's approval. Stop auto deployment by setting `BP_AUTO_DEPLOY_ENABLED=false` and investigate. Keep database backups; an API rollback does not undo migrations. Scan results are a point-in-time view; rebuild on Node and base-image security updates.

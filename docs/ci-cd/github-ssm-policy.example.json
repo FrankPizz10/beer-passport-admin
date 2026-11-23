@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OnlyReviewedDocumentAndNode",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:us-east-1:149290600858:document/BeerPassportDeployAdmin",
+        "arn:aws:ssm:us-east-1:149290600858:managed-instance/REPLACE_WITH_EXACT_MANAGED_NODE_ID"
+      ]
+    },
+    {
+      "Sid": "ReadInvocationStatus",
+      "Effect": "Allow",
+      "Action": "ssm:GetCommandInvocation",
+      "Resource": "*"
+    }
+  ]
+}

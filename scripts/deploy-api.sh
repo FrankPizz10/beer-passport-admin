@@ -59,6 +59,9 @@ command -v docker >/dev/null 2>&1 || fail "docker is not installed on this box"
 command -v curl >/dev/null 2>&1 || fail "curl is not installed on this box"
 [ -f "$ENV_FILE" ] || fail "env file not found: ${ENV_FILE} (create it on the box; its contents are never printed by this script)"
 mkdir -p "$BP_ADMIN_HOME"
+command -v flock >/dev/null 2>&1 || fail "flock is required to serialize deployments"
+exec 9>"${BP_ADMIN_HOME}/deploy.lock"
+flock -n 9 || fail "another deployment is running"
 
 # Record the current release as the rollback target BEFORE switching.
 PREVIOUS_REF=""
