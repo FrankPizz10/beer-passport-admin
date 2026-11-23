@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Deploy one immutable BeerPassport admin API image",
+  "parameters": {
+    "Digest": {
+      "type": "String",
+      "allowedPattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "mainSteps": [{
+    "action": "aws:runShellScript",
+    "name": "deploy",
+    "inputs": {
+      "timeoutSeconds": "300",
+      "runCommand": ["exec /opt/beerpassport-admin/deploy-api.sh frankpizz10/beerpassport-admin-api@{{ Digest }}"]
+    }
+  }]
+}

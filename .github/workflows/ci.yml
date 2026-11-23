@@ -1,0 +1,193 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# Cancel superseded runs for pull requests; never cancel a master run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  client:
+    name: Client (CRA, repo root)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install client dependencies
+        run: npm ci
+
+      # CI=true makes react-scripts test run once and exit, and makes the
+      # production build treat lint warnings as errors (this is the exact
+      # mode that caught the jsx-a11y error in the PR #12 Netlify preview).
+      - name: Client tests
+        run: npm test -- --watchAll=false
+        env:
+          CI: true
+
+      - name: Client production build
+        run: npm run build
+        env:
+          CI: true
+
+  server:
+    name: API (Express + Prisma, server/)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install API dependencies
+        run: npm ci
+
+      - name: Generate the Prisma client
+        run: npx prisma generate
+
+      - name: API type-check and build (tsc)
+        run: npm run build
+
+      # The Jest suite is unit/integration tests with injected clients; the
+      # live-database suite stays skipped without a test DATABASE_URL.
+      - name: API tests
+        run: npm test
+
+      - name: Deployment rollback checks
+        run: bash ../scripts/test-deploy-api.sh
+
+  image-scan:
+    name: API image vulnerability scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build AMD64 image
+        run: docker build --pull --platform linux/amd64 -t beerpassport-admin-api:ci server/
+      - name: Report high-severity image findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: beerpassport-admin-api:ci
+          vuln-type: os,library
+          severity: HIGH
+          exit-code: '0'
+          format: json
+          output: high-findings.json
+      - name: Summarize high-severity warnings
+        run: |
+          count="$(python3 -c 'import json; print(sum(len(r.get("Vulnerabilities", [])) for r in json.load(open("high-findings.json")).get("Results", [])))')"
+          if [ "$count" -gt 0 ]; then echo "::warning::$count high-severity image findings; see high-findings.json in job output"; fi
+          cat high-findings.json
+      - name: Block critical image findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: beerpassport-admin-api:ci
+          vuln-type: os,library
+          severity: CRITICAL
+          exit-code: '1'
+
+  deploy:
+    name: Publish and deploy API
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master' && vars.BP_AUTO_DEPLOY_ENABLED == 'true'
+    needs: [client, server, image-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: production-api-deploy
+      cancel-in-progress: false
+    env:
+      AWS_REGION: us-east-1
+      IMAGE_REPO: frankpizz10/beerpassport-admin-api
+      MANAGED_NODE: ${{ vars.BP_SSM_NODE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Refuse an obsolete release
+        run: |
+          git fetch origin master
+          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+      - name: Build release image
+        run: docker build --pull --platform linux/amd64 -t "$IMAGE_REPO:$GITHUB_SHA" server/
+      - name: Report high-severity findings in release image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: frankpizz10/beerpassport-admin-api:${{ github.sha }}
+          vuln-type: os,library
+          severity: HIGH
+          exit-code: "0"
+          format: json
+          output: release-high-findings.json
+      - name: Summarize release image warnings
+        run: |
+          count="$(python3 -c 'import json; print(sum(len(r.get("Vulnerabilities", [])) for r in json.load(open("release-high-findings.json")).get("Results", [])))')"
+          if [ "$count" -gt 0 ]; then echo "::warning::$count high-severity image findings; see release scan output"; fi
+          cat release-high-findings.json
+      - name: Block critical findings in release image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: frankpizz10/beerpassport-admin-api:${{ github.sha }}
+          vuln-type: os,library
+          severity: CRITICAL
+          exit-code: "1"
+      - name: Sign in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish and capture digest
+        id: publish
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_REPO:$GITHUB_SHA" | tee /tmp/bp-push.log
+          digest="$(sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' /tmp/bp-push.log | tail -n 1)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Configure AWS identity
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.BP_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy immutable digest via constrained SSM document
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$MANAGED_NODE" =~ ^mi-[0-9a-f]+$ ]]
+          git fetch origin master
+          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+          params="$(jq -nc --arg digest "$DIGEST" '{Digest:[$digest]}')"
+          id="$(aws ssm send-command --instance-ids "$MANAGED_NODE" --document-name BeerPassportDeployAdmin --document-version 1 --parameters "$params" --query 'Command.CommandId' --output text)"
+          for attempt in $(seq 1 72); do
+            status="$(aws ssm get-command-invocation --command-id "$id" --instance-id "$MANAGED_NODE" --query Status --output text 2>/dev/null || true)"
+            case "$status" in
+              Success) echo "Deployment succeeded: $id"; exit 0 ;;
+              Failed|Cancelled|TimedOut|Cancelling) echo "Deployment failed: $id ($status)"; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "Timed out waiting for SSM command $id; check its status before retrying." >&2
+          exit 1
