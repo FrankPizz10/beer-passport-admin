@@ -23,7 +23,7 @@
 # OpenSSL 3 at generate time and pick the matching query engine
 # (debian-openssl-3.0.x) for this base image.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS deps
+FROM node:22-trixie-slim AS deps
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -36,7 +36,7 @@ RUN npm ci && npx prisma generate
 # build: TypeScript compile (tsc -> dist/). Test files are excluded by
 # tsconfig, scripts/ are not part of the shipped server.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS build
+FROM node:22-trixie-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./package.json
@@ -52,7 +52,7 @@ RUN npm run build
 # runtime. The schema is copied for reference; the generated client embeds
 # what it needs.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS prod-deps
+FROM node:22-trixie-slim AS prod-deps
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -65,12 +65,13 @@ COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
 # ---------------------------------------------------------------------------
 # runtime: the shipped image.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-trixie-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/package.json ./package.json
 COPY --from=prod-deps /app/prisma ./prisma
