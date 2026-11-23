@@ -103,7 +103,7 @@ describe("ImageQueuePage", () => {
     expect(await screen.findByText("Hosted Beer")).toBeInTheDocument();
     const approve = screen.getByRole("button", { name: "Approve" });
     expect(approve).toBeDisabled();
-    const img = screen.getByAltText("Candidate image for Hosted Beer") as HTMLImageElement;
+    const img = screen.getByAltText("Candidate for Hosted Beer") as HTMLImageElement;
     expect(img.src).toBe(HOSTED_URL);
     fireEvent.load(img);
     expect(approve).toBeEnabled();
@@ -116,7 +116,7 @@ describe("ImageQueuePage", () => {
     mockApi([hostedItem]);
     renderPage();
     expect(await screen.findByText("Hosted Beer")).toBeInTheDocument();
-    const img = screen.getByAltText("Candidate image for Hosted Beer");
+    const img = screen.getByAltText("Candidate for Hosted Beer");
     fireEvent.error(img);
     expect(await screen.findByText(/Image failed to load/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
@@ -132,7 +132,7 @@ describe("ImageQueuePage", () => {
     renderPage();
     expect(await screen.findByText("Private Beer")).toBeInTheDocument();
     const img = (await screen.findByAltText(
-      "Candidate image for Private Beer"
+      "Candidate for Private Beer"
     )) as HTMLImageElement;
     expect(apiGet).toHaveBeenCalledWith("/images/9/preview-url");
     expect(img.src).toBe(SIGNED_URL);

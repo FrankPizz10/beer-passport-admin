@@ -22,7 +22,8 @@ const CollectionsPage: React.FC = () => {
     <div>
       <h1>Collections</h1>
       <div className="filters">
-        <input aria-label="Search collections" placeholder="Search collections" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="collections-filter-q">Search collections</label>
+        <input id="collections-filter-q" aria-label="Search collections" placeholder="Search collections" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
       </div>
       <DataTable<Collection>
         loading={loading} rows={data?.results ?? []} sort={controls.sort} direction={controls.direction} onSortChange={controls.onSortChange}

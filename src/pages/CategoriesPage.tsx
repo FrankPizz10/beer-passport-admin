@@ -24,7 +24,8 @@ const CategoriesPage: React.FC = () => {
     <div>
       <h1>Categories</h1>
       <div className="filters">
-        <input aria-label="Search categories" placeholder="Search categories" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
+        <label className="visually-hidden" htmlFor="categories-filter-q">Search categories</label>
+        <input id="categories-filter-q" aria-label="Search categories" placeholder="Search categories" value={q} onChange={(e) => { setQ(e.target.value); controls.setPage(1); }} />
       </div>
       <DataTable<Category>
         loading={loading} rows={data?.results ?? []} sort={controls.sort} direction={controls.direction} onSortChange={controls.onSortChange}

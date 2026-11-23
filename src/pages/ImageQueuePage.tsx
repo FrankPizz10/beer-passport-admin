@@ -98,7 +98,7 @@ const QueueCard: React.FC<{
             <img
               className="beer-image"
               src={previewUrl}
-              alt={`Candidate image for ${beerName}`}
+              alt={`Candidate for ${beerName}`}
               onLoad={() => setPreviewState("loaded")}
               onError={() => setPreviewState("failed")}
             />
