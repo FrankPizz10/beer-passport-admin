@@ -1,0 +1,1 @@
+{"Statement":[{"Action":"ecr:GetAuthorizationToken","Effect":"Allow","Resource":"*","Sid":"GetEcrAuthToken"},{"Action":["ecr:BatchGetImage","ecr:GetDownloadUrlForLayer"],"Effect":"Allow","Resource":"arn:aws:ecr:us-east-1:149290600858:repository/beerpassport-admin-api","Sid":"PullOnlyAdminApiRepository"}],"Version":"2012-10-17"}

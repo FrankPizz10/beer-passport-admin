@@ -8,8 +8,19 @@
 # Usage:
 #   scripts/deploy-api.sh <registry/repository@sha256:digest>
 #
-# Example:
-#   scripts/deploy-api.sh frankpizz10/beerpassport-admin-api@sha256:<64 hex>
+# Examples:
+#   scripts/deploy-api.sh 149290600858.dkr.ecr.us-east-1.amazonaws.com/beerpassport-admin-api@sha256:<64 hex>
+#   scripts/deploy-api.sh frankpizz10/beerpassport-admin-api@sha256:<64 hex>   (pre-migration Docker Hub image; rollback path)
+#
+# ECR references: ECR login tokens expire after 12 hours and the box has
+# no AWS CLI, so before pulling, the script refreshes authentication by
+# running scripts/ecr-login.py (Python 3 standard library only; see that
+# file for the pull-only credential design). The login uses a temporary
+# DOCKER_CONFIG directory that is deleted when the script exits, so no
+# registry credential persists on disk. Authentication happens BEFORE
+# the current container is touched: an auth or pull failure aborts the
+# deployment with the running service untouched. Docker Hub references
+# (the pre-migration rollback target) skip this path entirely.
 #
 # Behavior:
 #   * The image is pulled and run BY DIGEST. Tags are never trusted as a
@@ -30,6 +41,7 @@
 # set, previous-digest is NOT overwritten (see that script for why).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTAINER_NAME="beerpassport-admin-api"
 ROLLBACK_CONTAINER_NAME="beerpassport-admin-api-rollback"
 BP_ADMIN_HOME="${BP_ADMIN_HOME:-/opt/beerpassport-admin}"
@@ -78,6 +90,22 @@ else
   echo "No running ${CONTAINER_NAME} container found; no rollback target recorded."
   echo "If the API is currently running in another form, capture it as the"
   echo "rollback target manually before relying on rollback (see RUNBOOK.md)."
+fi
+
+# ECR pulls need a fresh login token (12h expiry, no AWS CLI on the box).
+# Refresh it into a throwaway DOCKER_CONFIG before pulling; the config is
+# deleted on exit and the running container is untouched if this fails.
+if [[ "$NEW_REF" == *.dkr.ecr.*.amazonaws.com/* ]]; then
+  ECR_REGISTRY="${NEW_REF%%/*}"
+  ECR_LOGIN="${BP_ECR_LOGIN:-${SCRIPT_DIR}/ecr-login.py}"
+  [ -x "$ECR_LOGIN" ] || fail "ECR login helper not found or not executable: ${ECR_LOGIN}"
+  command -v python3 >/dev/null 2>&1 || fail "python3 is required for ECR authentication on this box"
+  TEMP_DOCKER_CONFIG="$(mktemp -d)"
+  chmod 700 "$TEMP_DOCKER_CONFIG"
+  export DOCKER_CONFIG="$TEMP_DOCKER_CONFIG"
+  trap 'rm -rf "$TEMP_DOCKER_CONFIG"' EXIT
+  echo "Refreshing ECR authentication for ${ECR_REGISTRY} ..."
+  "$ECR_LOGIN" "$ECR_REGISTRY" || fail "ECR authentication failed; deployment aborted before any change"
 fi
 
 echo "Pulling ${NEW_REF} ..."

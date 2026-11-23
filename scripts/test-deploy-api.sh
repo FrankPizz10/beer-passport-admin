@@ -11,13 +11,14 @@ set -eu
 case "$1 ${2:-}" in
   "container inspect") case "$3" in beerpassport-admin-api) test -f "$MOCK_STATE/main";; *) test -f "$MOCK_STATE/rollback";; esac;;
   "inspect --format") echo 'frankpizz10/beerpassport-admin-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';;
-  "pull "*) exit 0;;
+  "pull "*) echo pull >> "$MOCK_STATE/order" 2>/dev/null || true; exit 0;;
   "stop "*) exit 0;;
   "rename "*) if [ "$2" = beerpassport-admin-api ]; then mv "$MOCK_STATE/main" "$MOCK_STATE/rollback"; else mv "$MOCK_STATE/rollback" "$MOCK_STATE/main"; fi;;
   "run -d") [ "$MOCK_FAIL" != run ] || exit 1; touch "$MOCK_STATE/main" "$MOCK_STATE/new";;
   "network connect") [ "$MOCK_FAIL" != network ];;
   "exec "*) [ "$MOCK_FAIL" != database ];;
   "rm -f") rm -f "$MOCK_STATE/main" "$MOCK_STATE/new";;
+  "rm "*) rm -f "$MOCK_STATE/rollback";;
   "start "*) touch "$MOCK_STATE/restored";;
   "logs --tail") exit 0;;
   *) echo "unexpected mocked Docker command: $1 ${2:-}" >&2; exit 2;;
@@ -45,3 +46,51 @@ for failure in run network health database; do
   fi
   echo "PASS: $failure failure restored the prior container"
 done
+
+# --- ECR scenarios -------------------------------------------------------
+# A stub login helper stands in for scripts/ecr-login.py (BP_ECR_LOGIN).
+cat > "$tmp/bin/ecr-login-stub" <<'MOCK'
+#!/usr/bin/env bash
+echo ecr-login >> "$MOCK_STATE/order"
+[ "$MOCK_FAIL" != ecrlogin ]
+MOCK
+chmod +x "$tmp/bin/ecr-login-stub"
+ecr_ref="149290600858.dkr.ecr.us-east-1.amazonaws.com/beerpassport-admin-api@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+# ECR deploy succeeds: login runs before the pull, temp docker config is
+# cleaned up, and the Docker Hub reference is recorded as rollback target.
+state="$tmp/ecr-ok"; mkdir -p "$state/tmpdir"; touch "$state/main" "$state/env"
+if ! PATH="$tmp/bin:$PATH" TMPDIR="$state/tmpdir" BP_ADMIN_HOME="$state/home" BP_ADMIN_ENV_FILE="$state/env" \
+  BP_ECR_LOGIN="$tmp/bin/ecr-login-stub" MOCK_STATE="$state" MOCK_FAIL="" \
+  bash "$script" "$ecr_ref" > "$state/output" 2>&1; then
+  cat "$state/output" >&2; echo "FAIL: ECR deploy did not succeed" >&2; exit 1
+fi
+grep -q '^ecr-login$' "$state/order" && grep -q '^pull$' "$state/order" || { echo "FAIL: ECR login/pull not recorded" >&2; exit 1; }
+[ "$(head -n 1 "$state/order")" = "ecr-login" ] || { echo "FAIL: ECR login did not precede the pull" >&2; exit 1; }
+[ -z "$(ls -A "$state/tmpdir")" ] || { echo "FAIL: temporary docker config was left behind" >&2; exit 1; }
+grep -q 'frankpizz10/beerpassport-admin-api@sha256:aaaa' "$state/home/previous-digest" || { echo "FAIL: Docker Hub rollback target not recorded" >&2; exit 1; }
+echo "PASS: ECR deploy logged in first, pulled, and recorded the Docker Hub rollback target"
+
+# ECR login failure aborts before the running container is touched.
+state="$tmp/ecr-authfail"; mkdir -p "$state/tmpdir"; touch "$state/main" "$state/env"
+if PATH="$tmp/bin:$PATH" TMPDIR="$state/tmpdir" BP_ADMIN_HOME="$state/home" BP_ADMIN_ENV_FILE="$state/env" \
+  BP_ECR_LOGIN="$tmp/bin/ecr-login-stub" MOCK_STATE="$state" MOCK_FAIL="ecrlogin" \
+  bash "$script" "$ecr_ref" > "$state/output" 2>&1; then
+  echo "FAIL: ECR auth failure did not fail the deploy" >&2; exit 1
+fi
+grep -q 'ECR authentication failed' "$state/output" || { cat "$state/output" >&2; echo "FAIL: unexpected output on ECR auth failure" >&2; exit 1; }
+[ ! -f "$state/restored" ] && [ -f "$state/main" ] && [ ! -f "$state/rollback" ] || { echo "FAIL: ECR auth failure disturbed the running container" >&2; exit 1; }
+echo "PASS: ECR auth failure aborted before any change"
+
+# Rollback after the ECR deploy returns to the Docker Hub image and never
+# invokes the ECR login helper.
+state="$tmp/ecr-ok"
+: > "$state/order"
+rollback_script="$(dirname "$script")/rollback-api.sh"
+if ! PATH="$tmp/bin:$PATH" TMPDIR="$state/tmpdir" BP_ADMIN_HOME="$state/home" BP_ADMIN_ENV_FILE="$state/env" \
+  BP_ECR_LOGIN="$tmp/bin/ecr-login-stub" MOCK_STATE="$state" MOCK_FAIL="" \
+  bash "$rollback_script" > "$state/rollback-output" 2>&1; then
+  cat "$state/rollback-output" >&2; echo "FAIL: rollback to the Docker Hub image failed" >&2; exit 1
+fi
+if grep -q 'ecr-login' "$state/order"; then echo "FAIL: rollback to a Docker Hub reference invoked ECR login" >&2; exit 1; fi
+echo "PASS: rollback to the pre-migration Docker Hub image works without ECR auth"

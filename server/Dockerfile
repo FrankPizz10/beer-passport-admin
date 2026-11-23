@@ -23,7 +23,7 @@
 # OpenSSL 3 at generate time and pick the matching query engine
 # (debian-openssl-3.0.x) for this base image.
 # ---------------------------------------------------------------------------
-FROM node:22-trixie-slim AS deps
+FROM node:26-trixie-slim AS deps
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -36,7 +36,7 @@ RUN npm ci && npx prisma generate
 # build: TypeScript compile (tsc -> dist/). Test files are excluded by
 # tsconfig, scripts/ are not part of the shipped server.
 # ---------------------------------------------------------------------------
-FROM node:22-trixie-slim AS build
+FROM node:26-trixie-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./package.json
@@ -52,7 +52,7 @@ RUN npm run build
 # runtime. The schema is copied for reference; the generated client embeds
 # what it needs.
 # ---------------------------------------------------------------------------
-FROM node:22-trixie-slim AS prod-deps
+FROM node:26-trixie-slim AS prod-deps
 WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
@@ -65,7 +65,7 @@ COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
 # ---------------------------------------------------------------------------
 # runtime: the shipped image.
 # ---------------------------------------------------------------------------
-FROM node:22-trixie-slim AS runtime
+FROM node:26-trixie-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 RUN apt-get update \
@@ -82,7 +82,7 @@ USER node
 
 EXPOSE 4100
 
-# Node 22 has a global fetch; no curl/wget is installed in this image.
+# Node 26 has a global fetch; no curl/wget is installed in this image.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:4100/admin-api/v1/health').then((r) => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1));"
 
