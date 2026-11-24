@@ -39,7 +39,7 @@ export const HOLD_REASONS = [
   'duplicate_unresolved', 'image_unverified', 'metadata_incomplete',
   'out_of_scope', 'other',
 ];
-export const REVIEW_STATUSES = ['pending', 'selected', 'held', 'rejected', 'superseded'];
+export const REVIEW_STATUSES = ['pending', 'selected', 'held', 'rejected', 'superseded', 'imported'];
 
 const enumFilter = (
   query: Record<string, unknown>,
