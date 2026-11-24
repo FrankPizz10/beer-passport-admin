@@ -10,6 +10,7 @@ import {
 import { ErrorState, Loading } from "../components/States";
 import { fmtBool, fmtDate, fmtVal } from "../components/helpers";
 import DiscoveryImageReviewPanel from "./DiscoveryImageReviewPanel";
+import DiscoveryCandidateFieldReview from "../components/DiscoveryCandidateFieldReview";
 
 // The hold-reason vocabulary (issues/001); the API requires one for
 // hold and reject decisions and refuses the decision without it.
@@ -101,6 +102,8 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">Barcode</span>{fmtVal(data.barcode)}</div>
         <div><span className="field-label">Description</span>{fmtVal(data.description)}</div>
       </div>
+
+      <DiscoveryCandidateFieldReview candidate={data} />
 
       <h2>Provenance</h2>
       <div className="detail-grid">
