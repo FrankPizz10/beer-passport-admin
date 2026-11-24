@@ -142,7 +142,11 @@ BEGIN
         AND c.relname IN ('beers', 'beverage_images', 'breweries',
           'breweries_geocode', 'categories', 'styles', 'collections',
           'collection_beers', 'user_beers', 'user_badges', 'friends',
-          'notifications', 'users', 'api_keys', 'image_review_events'))
+          'notifications', 'users', 'api_keys', 'image_review_events',
+          'discovery_batches', 'discovery_candidates',
+          'discovery_candidate_pairs', 'discovery_decisions',
+          'discovery_image_fetches', 'discovery_image_decisions',
+          'discovery_import_manifests', 'discovery_manifest_events'))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
   END LOOP;
@@ -259,6 +263,39 @@ GRANT SELECT ON
   notifications,
   image_review_events
 TO beerpassport_admin_viewer;
+
+-- Discovery staging tables (migrations 002-005). This script runs
+-- after migration 001 and BEFORE migrations 002-005 in the
+-- documented application order, so the tables may not exist yet:
+-- grant SELECT on each one that does exist, and skip (with a
+-- notice) the ones still to come; their migrations grant SELECT to
+-- this role, role-existence-guarded, when they land. On a re-run
+-- against a migrated database every table exists, so this restores
+-- all 8 discovery grants after the clean-slate revoke above; the
+-- unguarded form (adding the tables to the GRANT list above) would
+-- fail outright on a pre-002 database with "relation does not
+-- exist".
+DO $$
+DECLARE
+  t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'discovery_batches', 'discovery_candidates',
+    'discovery_candidate_pairs', 'discovery_decisions',
+    'discovery_image_fetches', 'discovery_image_decisions',
+    'discovery_import_manifests', 'discovery_manifest_events'
+  ] LOOP
+    IF EXISTS (SELECT 1 FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'public' AND c.relname = t
+                 AND c.relkind IN ('r', 'p')) THEN
+      EXECUTE format('GRANT SELECT ON %I TO beerpassport_admin_viewer', t);
+    ELSE
+      RAISE NOTICE 'discovery table % not present yet; skipping its SELECT grant', t;
+    END IF;
+  END LOOP;
+END
+$$;
 
 -- Column-level SELECT where a column must stay unreadable even at the
 -- database layer: users.notification_token (push token) is excluded.
