@@ -551,7 +551,14 @@ The import runs as ONE transaction at REPEATABLE READ:
 
 1. It takes a transaction-scoped advisory lock on the fixed
    catalog-import key (777001239). A concurrent import waits, then
-   revalidates against the new baseline.
+   revalidates against the new baseline. Immediately afterwards it
+   takes SHARE ROW EXCLUSIVE table locks on beers, breweries, and
+   beverage_images, held until the transaction ends: the advisory
+   lock alone only serializes imports against each other, while the
+   table locks also hold off normal catalog writes (every INSERT,
+   UPDATE, or DELETE takes a conflicting ROW EXCLUSIVE lock), so no
+   catalog change can slip in between the checks below and the
+   import's writes. Plain reads are unaffected.
 2. It locks the manifest's candidate rows SELECT ... FOR UPDATE.
 3. It runs all five checks INSIDE the transaction, in order:
    (1) the manifest is `approved` and its `approved_sha256` equals
@@ -578,7 +585,15 @@ The import runs as ONE transaction at REPEATABLE READ:
    `Discovery hub import: manifest <id>, candidate <key>, image
    decision <id>`, appended after any staged attribution). On a
    mismatch the import ABORTS; nothing degrades to pending.
-5. It writes, still in the one transaction: new breweries the
+5. Before writing, it aligns the breweries, beers, and
+   beverage_images id sequences with their tables' current maxima.
+   Alignment never moves a sequence backwards: the target is the
+   greater of the table maximum and the sequence's own last value,
+   so a sequence already ahead of its table (ids reserved by
+   another tool, a restored dump) keeps its position. An alignment
+   failure aborts the import (`IMPORT REFUSED
+   [sequence_alignment]`); it is never ignored.
+6. It writes, still in the one transaction: new breweries the
    manifest marks as new (manifest order, deduplicated within the
    manifest), beers with NEW ids assigned above the current max
    beer id in manifest order, the beverage_images rows, candidates

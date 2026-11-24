@@ -270,3 +270,75 @@ approve control visible for the allowlisted account.
   databases; nothing was pushed and no PR was created. The stacked
   PR (against discovery/phase4-image-decisions) is Frank's/Codex's
   to open after review.
+
+## Import-safety fixes (post-review)
+
+Two issues found in review of the import executor, fixed on this
+branch after the original delivery:
+
+1. **Sequence alignment could rewind a sequence and hid its own
+   failures.** The executor aligned each catalog id sequence with
+   `setval(seq, (SELECT max(id) FROM table))` and swallowed errors
+   (`.catch(() => undefined)`). If a sequence was already ahead of
+   its table (ids reserved by another tool, a restored dump,
+   explicit-id inserts), alignment moved it BACK to the maximum,
+   where a later `nextval` could hand out an id something else
+   treats as taken; and a failed alignment (for example a missing
+   sequence) was silently ignored. Fix
+   (`alignCatalogSequences` in
+   `server/scripts/import-discovery-manifest.ts`): the target is
+   `GREATEST(table max, the sequence's own last_value)` with
+   `is_called = true`, so alignment never moves a sequence
+   backwards, and any alignment error aborts the import as
+   `IMPORT REFUSED [sequence_alignment]` before any catalog row is
+   written.
+2. **Revalidation was not protected against normal catalog
+   writes.** The advisory lock serializes imports against each
+   other, but a regular INSERT/UPDATE/DELETE on beers, breweries,
+   or beverage_images could still land after the fingerprint and
+   collision checks and before the import's writes, inside the
+   window the checks are supposed to freeze. Fix: immediately
+   after acquiring the advisory lock, the import transaction takes
+   `LOCK TABLE beers, breweries, beverage_images IN SHARE ROW
+   EXCLUSIVE MODE`, held to commit. That mode conflicts with the
+   ROW EXCLUSIVE lock every catalog write takes, so a write that
+   starts during an import waits (and a write already in flight
+   finishes before the lock is granted, so checks never run
+   against a half-written catalog); plain SELECTs are unaffected,
+   and the import's own inserts proceed. The candidate decision
+   checks and the image hash checks are unchanged.
+
+Regression tests (all in
+`server/test/discoveryManifests.integration.test.ts`, run by the
+disposable-database rehearsal):
+
+- *Sequences ahead are never rewound:* all three catalog sequences
+  are set ahead of their tables (+1000 beers, +500 breweries,
+  +500 images) before a real import; the import succeeds, the new
+  beer and image ids land above the ahead positions (not at
+  max + 1), and each sequence's `last_value` afterwards is at or
+  beyond its ahead position.
+- *Alignment failure aborts:* the beers sequence is renamed so
+  alignment cannot resolve it; the import refuses with check
+  `sequence_alignment`, beer and brewery counts are unchanged, and
+  the manifest stays `approved`. (The column default references
+  the sequence by OID, so inserts would still have worked had the
+  failure been swallowed: the refusal is the proof it was not.)
+- *Concurrent catalog write is held off:* an import is parked
+  mid-transaction at the image re-fetch (after the checks, locks
+  held); a normal beer INSERT from another client with a 1s lock
+  timeout is refused by the lock (`lock timeout` / SQLSTATE
+  55P03) and lands nothing; the import then completes with
+  exactly one copy of the imported beer, and the same INSERT
+  succeeds immediately after the import commits.
+
+Verification for this fix (2026-11-23): bare `npx jest` from
+`server/` exits 0 (215 passed, 24 skipped, 0 failed) and
+`npx tsc --noEmit` is clean; `server/scripts/test-discovery-roles.sh`
+passes end to end (ALL DISCOVERY ROLE CHECKS PASSED, integration
+7/7); `server/scripts/test-discovery-manifests.sh` passes end to
+end (ALL DISCOVERY MANIFEST CHECKS PASSED, integration suite now
+10/10 including the three regressions above, CLI refusals intact,
+offline sha256sum of the exported manifest still matches). No
+import was run against production and no AWS or infrastructure
+setting changed.
