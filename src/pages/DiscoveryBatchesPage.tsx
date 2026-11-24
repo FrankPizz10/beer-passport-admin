@@ -9,6 +9,8 @@ import {
 } from "../api/types";
 import { EmptyState, ErrorState, Loading } from "../components/States";
 import { fmtDate, fmtVal } from "../components/helpers";
+import HelpTip from "../components/HelpTip";
+import StatusChip from "../components/StatusChip";
 
 interface BatchesResponse {
   results: DiscoveryBatch[];
@@ -91,19 +93,29 @@ const DiscoveryBatchesPage: React.FC = () => {
   return (
     <div>
       <h1>Discovery Batches</h1>
+      <p className="page-lede">
+        Each batch is a full staged set of candidate records from
+        one source (never a sample). Reviewers work through its
+        candidates, then a manifest can be built from the selected
+        ones. Counts below are the batch's real totals as reported
+        by the API.
+      </p>
       {batches.length === 0 ? (
         <EmptyState message="No discovery batches found. No batches have been ingested yet." />
       ) : (
         <div className="queue-list">
           {batches.map((batch) => (
             <section className="queue-card" key={batch.id}>
-              <h2>
-                <Link
-                  to={`/admin/discovery/batches/${batch.id}/candidates`}
-                >
-                  {batch.title || batch.slug}
-                </Link>
-              </h2>
+              <div className="page-title-row">
+                <h2>
+                  <Link
+                    to={`/admin/discovery/batches/${batch.id}/candidates`}
+                  >
+                    {batch.title || batch.slug}
+                  </Link>
+                </h2>
+                <StatusChip status={batch.status} />
+              </div>
               <div className="detail-grid">
                 <div>
                   <span className="field-label">Source</span>
@@ -118,18 +130,44 @@ const DiscoveryBatchesPage: React.FC = () => {
                   {batch.record_count}
                 </div>
                 <div>
-                  <span className="field-label">Status</span>
-                  {batch.status}
-                </div>
-                <div>
                   <span className="field-label">Ingested</span>
                   {fmtDate(batch.ingested_at)}
                 </div>
-                <div>
-                  <span className="field-label">Review Progress</span>
-                  {batch.review_progress.decided}/
-                  {batch.review_progress.total} reviewed (
-                  {batch.review_progress.percent_reviewed}%)
+              </div>
+              <div className="batch-progress">
+                <div className="progress-label">
+                  <span>Review progress</span>
+                  <span>
+                    {batch.review_progress.decided}/
+                    {batch.review_progress.total} reviewed (
+                    {batch.review_progress.percent_reviewed}%)
+                  </span>
+                </div>
+                <div
+                  className="progress-track"
+                  role="progressbar"
+                  aria-label={`Review progress for ${batch.title || batch.slug}`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={batch.review_progress.percent_reviewed}
+                >
+                  <div
+                    className="progress-fill"
+                    style={{
+                      width: `${batch.review_progress.percent_reviewed}%`,
+                    }}
+                  />
+                </div>
+                <div className="chip-row">
+                  {Object.entries(batch.counts.by_review_status)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([status, count]) => (
+                      <StatusChip
+                        key={status}
+                        status={status}
+                        label={`${status}: ${count}`}
+                      />
+                    ))}
                 </div>
               </div>
               <div className="detail-grid">
@@ -144,10 +182,6 @@ const DiscoveryBatchesPage: React.FC = () => {
                 <BreakdownList
                   title="Hold Reasons"
                   counts={batch.counts.by_hold_reason}
-                />
-                <BreakdownList
-                  title="Review Statuses"
-                  counts={batch.counts.by_review_status}
                 />
               </div>
               <p>
@@ -166,6 +200,7 @@ const DiscoveryBatchesPage: React.FC = () => {
               <p>
                 <button
                   type="button"
+                  className="btn btn-primary"
                   onClick={() => buildManifest(batch)}
                   disabled={buildingId !== null}
                 >
@@ -173,6 +208,14 @@ const DiscoveryBatchesPage: React.FC = () => {
                     ? "Building manifest..."
                     : "Build import manifest"}
                 </button>
+                <HelpTip topic="manifest hash">
+                  Building freezes this batch's selected candidates,
+                  their review intents, and their approved image
+                  decisions into a manifest with an exact ID and
+                  SHA-256 hash. The manifest still needs separate
+                  hash approval before the operator can import it;
+                  building alone imports nothing.
+                </HelpTip>
               </p>
               {buildFailure && buildFailure.batchId === batch.id ? (
                 <div className="queue-preview-failed" role="alert">
