@@ -61,15 +61,18 @@ test("composition derives from the manifest records' kinds (mixed version 2)", (
   expect(
     screen.getByText(/image for existing catalog beer #7/)
   ).toBeInTheDocument();
-  expect(screen.getByText("Pending backend support")).toBeInTheDocument();
+  expect(screen.getByText("Image only")).toBeInTheDocument();
   // The section names the exact manifest ID and full SHA-256 it
-  // covers, and the pending-backend notice is still rendered.
+  // covers, and image-only entries are described as part of the
+  // manifest (the shipped behavior), never as pending support.
   expect(
     screen.getByText(new RegExp(`manifest mf-candidates-us-full-20261124-01, sha256 ${SHA}`))
   ).toBeInTheDocument();
   expect(
-    screen.getByText(/Image-only import is pending backend review and deployment/)
+    screen.getByText(/are part of this manifest/)
   ).toBeInTheDocument();
+  expect(screen.queryByText(/pending backend/i)).toBeNull();
+  expect(screen.queryByText(/not yet deployed/i)).toBeNull();
 });
 
 test("a version 1 manifest (no kind anywhere) renders as all new beers", () => {

@@ -23,10 +23,11 @@ import { fmtVal } from "./helpers";
 // through the existing catalog endpoint (GET /catalog/beers/:id).
 //
 // Gate copy lives here persistently: an image decision is not an
-// import, and for image-only records the import path itself runs
-// through version 2 manifest entries (contract section B2), which
-// are implemented in Codex's local backend and not yet reviewed or
-// deployed, so nothing in this panel may read as publication.
+// import. For image-only records the import path runs through
+// version 2 manifest entries (contract section B2): the image
+// reaches the catalog only when a manifest containing the entry is
+// approved by its exact hash and imported by the operator, so
+// nothing in this panel may read as publication.
 
 const asIntentRecord = (data: unknown): ReviewIntentRecord | null => {
   if (!data || typeof data !== "object") return null;
@@ -130,10 +131,11 @@ const DiscoveryExistingBeerPanel: React.FC<{
           <p className="gate-note">
             Approving the image below records an image decision for
             catalog beer #{targetBeerId} only. It does not create or
-            change a beer, and it does not publish anything: import is
-            a separate, hash-gated step, and the image-only import
-            path (version 2 manifest entries, contract section B2) is
-            pending backend review and deployment.
+            change a beer, and it does not publish anything: the
+            image reaches the catalog only when a manifest containing
+            this image-only entry (version 2 manifest entries,
+            contract section B2) is approved by its exact ID and
+            SHA-256 and then imported by the operator.
           </p>
         </>
       )}

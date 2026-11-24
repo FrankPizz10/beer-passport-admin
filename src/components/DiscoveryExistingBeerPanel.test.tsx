@@ -106,8 +106,9 @@ test("names the intent's target beer explicitly and separates the image decision
     screen.getByText(/does not create or change a beer/)
   ).toBeInTheDocument();
   expect(
-    screen.getByText(/image-only import path \(version 2 manifest entries, contract section B2\) is pending/)
+    screen.getByText(/image reaches the catalog only when a manifest containing this image-only entry/)
   ).toBeInTheDocument();
+  expect(screen.queryByText(/pending backend/i)).toBeNull();
   // Provenance: the origin URL is text, and this panel renders no
   // image element at all.
   expect(
