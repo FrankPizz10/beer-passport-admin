@@ -2,8 +2,9 @@
 --
 -- Run CONNECTED AS the reviewer role, AFTER
 -- server/db/discovery-reviewer-role.sql and migrations
--- server/db/migrations/002-discovery-staging.sql and
--- server/db/migrations/003-discovery-decisions.sql:
+-- server/db/migrations/002-discovery-staging.sql,
+-- server/db/migrations/003-discovery-decisions.sql, and
+-- server/db/migrations/004-discovery-image-review.sql:
 --
 --   PGPASSWORD='<reviewer password>' psql -h <host> -U beerpassport_discovery_reviewer \
 --        -d <database> -f server/db/verify-discovery-reviewer.sql
@@ -69,8 +70,9 @@ $$;
 
 -- No unexpected DIRECT privileges: beyond the intended grants (CONNECT
 -- on this database, USAGE on public, SELECT on the discovery tables
--- and on beers and breweries, the two column-level UPDATE sets, INSERT
--- and SELECT on discovery_decisions, USAGE on its sequence), the role
+-- and on beers and breweries, the column-level UPDATE sets, INSERT
+-- and SELECT on discovery_decisions, discovery_image_fetches, and
+-- discovery_image_decisions, USAGE on their sequences), the role
 -- must hold nothing. Mirrors the setup audit.
 DO $$
 DECLARE
@@ -93,9 +95,12 @@ BEGIN
       AND ((c.relname IN ('discovery_batches', 'discovery_candidates',
              'discovery_candidate_pairs', 'beers', 'breweries')
              AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
-         OR (c.relname = 'discovery_decisions' AND c.relkind = 'r'
+         OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
+             'discovery_image_decisions') AND c.relkind = 'r'
              AND a.privilege_type IN ('INSERT', 'SELECT'))
-         OR (c.relname = 'discovery_decisions_id_seq' AND c.relkind = 'S'
+         OR (c.relname IN ('discovery_decisions_id_seq',
+             'discovery_image_fetches_id_seq',
+             'discovery_image_decisions_id_seq') AND c.relkind = 'S'
              AND a.privilege_type = 'USAGE')));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_attribute att
@@ -106,7 +111,9 @@ BEGIN
       AND ((c.relname = 'discovery_candidates'
             AND a.privilege_type = 'UPDATE'
             AND att.attname IN ('review_status', 'hold_reason',
-              'duplicate_of_candidate_id', 'updated_at'))
+              'duplicate_of_candidate_id', 'updated_at',
+              'image_decision', 'image_decision_fetch_id',
+              'image_decision_at'))
         OR (c.relname = 'discovery_candidate_pairs'
             AND a.privilege_type = 'UPDATE'
             AND att.attname IN ('status', 'decided_by', 'decided_at'))));
@@ -172,6 +179,36 @@ BEGIN
     RAISE NOTICE 'PASS: INSERT into discovery_decisions succeeds';
   EXCEPTION WHEN foreign_key_violation OR check_violation THEN
     RAISE NOTICE 'PASS: INSERT into discovery_decisions is privileged (stopped only by a constraint; no candidate row exists to reference)';
+  END;
+
+  -- Image review (migration 004): the candidate image-decision state
+  -- columns are writable; the fetch log and the image decision audit
+  -- are readable and appendable (same constraint trick: with no
+  -- candidate row, the foreign key stops the append only after the
+  -- privilege check has passed).
+  UPDATE discovery_candidates
+     SET image_decision = 'approved', image_decision_fetch_id = NULL,
+         image_decision_at = CURRENT_TIMESTAMP
+   WHERE id = cand_id;
+  RAISE NOTICE 'PASS: UPDATE of the candidate image-decision columns succeeds';
+
+  PERFORM count(*) FROM discovery_image_fetches;
+  PERFORM count(*) FROM discovery_image_decisions;
+  RAISE NOTICE 'PASS: SELECT on discovery image tables succeeds';
+  BEGIN
+    INSERT INTO discovery_image_fetches (candidate_id, image_ref, outcome)
+    VALUES (cand_id, 'https://example.invalid/x.png', 'success');
+    RAISE NOTICE 'PASS: INSERT into discovery_image_fetches succeeds';
+  EXCEPTION WHEN foreign_key_violation OR check_violation OR not_null_violation THEN
+    RAISE NOTICE 'PASS: INSERT into discovery_image_fetches is privileged (stopped only by a constraint; no candidate row exists to reference)';
+  END;
+  BEGIN
+    INSERT INTO discovery_image_decisions
+      (candidate_id, fetch_id, image_ref, image_sha256, decision)
+    VALUES (cand_id, -1, 'https://example.invalid/x.png', repeat('0', 64), 'approved');
+    RAISE NOTICE 'PASS: INSERT into discovery_image_decisions succeeds';
+  EXCEPTION WHEN foreign_key_violation OR check_violation OR not_null_violation THEN
+    RAISE NOTICE 'PASS: INSERT into discovery_image_decisions is privileged (stopped only by a constraint; no fetch row exists to reference)';
   END;
 END
 $$;
@@ -258,6 +295,36 @@ BEGIN
     RAISE EXCEPTION 'FAIL: UPDATE on discovery_decisions succeeded';
   EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'PASS: UPDATE on discovery_decisions (append-only) denied';
+  END;
+  BEGIN
+    UPDATE discovery_image_fetches SET outcome = outcome WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: UPDATE on discovery_image_fetches succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE on discovery_image_fetches (append-only) denied';
+  END;
+  BEGIN
+    DELETE FROM discovery_image_fetches WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: DELETE on discovery_image_fetches succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: DELETE on discovery_image_fetches denied';
+  END;
+  BEGIN
+    UPDATE discovery_image_decisions SET note = note WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: UPDATE on discovery_image_decisions succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE on discovery_image_decisions (append-only) denied';
+  END;
+  BEGIN
+    DELETE FROM discovery_image_decisions WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: DELETE on discovery_image_decisions succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: DELETE on discovery_image_decisions denied';
+  END;
+  BEGIN
+    UPDATE discovery_candidates SET image_url = image_url WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: UPDATE of image_url (outside the image-decision columns) succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE of image_url (outside the image-decision columns) denied';
   END;
   BEGIN
     PERFORM id FROM users LIMIT 1;
