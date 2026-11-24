@@ -16,10 +16,9 @@ import { EmptyState } from "./States";
 //   image; importing one writes only a beverage_images row for that
 //   beer and creates or changes no beer.
 //
-// The version 2 manifest backend is implemented in Codex's local
-// backend and is NOT reviewed or deployed yet, so the pending
-// notice below stays until it is: production manifests today
-// contain new-beer entries only.
+// Both kinds are part of the same manifest: approving the exact
+// manifest ID and SHA-256 approves them together, and the operator
+// import applies exactly what the approved hash covers.
 
 const DiscoveryManifestComposition: React.FC<{
   manifest: DiscoveryManifestDetail;
@@ -65,7 +64,9 @@ const DiscoveryManifestComposition: React.FC<{
                   {record.image
                     ? `(image decision ${record.image.decision_id}, sha256 ${record.image.sha256.slice(0, 12)}…)`
                     : ""}{" "}
-                  <span className="badge">Pending backend support</span>
+                  <span className="status-chip status-chip--held">
+                    Image only
+                  </span>
                 </li>
               ))}
             </ul>
@@ -73,11 +74,12 @@ const DiscoveryManifestComposition: React.FC<{
         </>
       )}
       <p>
-        Image-only import is pending backend review and deployment
-        (contract section B2): version 2 manifest entries of kind
-        "image_only" come from Codex's backend, which is implemented
-        locally but not yet deployed, so until it ships this
-        manifest's import covers its new-beer entries only.
+        Image-only entries (version 2 manifest entries of kind
+        "image_only", contract section B2) are part of this
+        manifest: approving the exact ID and SHA-256 above approves
+        them together with the new-beer entries, and importing the
+        approved manifest writes only an image row for each target
+        beer, creating and changing no beer.
       </p>
     </section>
   );

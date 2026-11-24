@@ -6,6 +6,8 @@ import { DiscoveryManifestDetail } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
 import DiscoveryManifestComposition from "../components/DiscoveryManifestComposition";
 import { fmtDate, fmtVal } from "../components/helpers";
+import HelpTip from "../components/HelpTip";
+import StatusChip from "../components/StatusChip";
 
 // One discovery import manifest (Phase 5). The full SHA-256 is the
 // approval target: Frank verifies it out of band (the Export button
@@ -91,7 +93,10 @@ const DiscoveryManifestDetailPage: React.FC = () => {
 
   return (
     <div>
-      <h1>{manifest.id}</h1>
+      <div className="page-title-row">
+        <h1>{manifest.id}</h1>
+        <StatusChip status={manifest.status} />
+      </div>
       <p>
         <Link to="/admin/discovery/manifests">Back to manifests</Link>
         {manifest.batch_slug ? (
@@ -110,7 +115,7 @@ const DiscoveryManifestDetailPage: React.FC = () => {
         <div className="detail-grid">
           <div>
             <span className="field-label">Status</span>
-            {manifest.status}
+            <StatusChip status={manifest.status} />
           </div>
           <div>
             <span className="field-label">Records</span>
@@ -137,14 +142,23 @@ const DiscoveryManifestDetailPage: React.FC = () => {
           </div>
         </div>
         <div>
-          <span className="field-label">SHA-256 (full)</span>
-          <p>
+          <span className="field-label">
+            SHA-256 (full)
+            <HelpTip topic="manifest hash">
+              The SHA-256 of this manifest's exact canonical bytes.
+              Approval binds to this hash: verify it out of band
+              (Export downloads the exact bytes, so sha256sum must
+              reproduce it) before approving. Any change to the
+              manifest or the catalog makes the approval stale.
+            </HelpTip>
+          </span>
+          <div className="hash-block">
             <code>{manifest.sha256}</code>{" "}
-            <button type="button" onClick={copyHash}>
+            <button type="button" className="btn" onClick={copyHash}>
               Copy hash
             </button>{" "}
             {copied ? <span>Copied</span> : null}
-          </p>
+          </div>
           {manifest.approved_sha256 ? (
             <p>
               Approved SHA-256: <code>{manifest.approved_sha256}</code>
@@ -215,6 +229,13 @@ const DiscoveryManifestDetailPage: React.FC = () => {
             Approved. The operator executor can import this manifest
             while the catalog fingerprint and candidate decisions are
             unchanged; any change makes it stale and the import aborts.
+            <HelpTip topic="import">
+              Importing runs outside this UI, through the operator
+              executor, only against a manifest whose exact hash was
+              approved. The executor re-validates every record at
+              import time and aborts if the catalog has drifted.
+              Nothing in this UI imports by itself.
+            </HelpTip>
           </p>
         ) : null}
       </section>

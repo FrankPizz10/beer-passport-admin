@@ -94,12 +94,14 @@ Shapes the UI depends on:
   is exactly `{sha256}`; refusals: 503 unconfigured, 403 not
   allowlisted, 400 malformed hash, 422 hash mismatch, 409 not draft.
 
-## A2. Supplied contract (NOT in master; implemented locally, not deployed)
+## A2. Supplied contract (implemented by Codex; live in production)
 
-Supplied by Frank on 2026-11-24 from Codex's local backend
-implementation. Listed separately from section A because these
-endpoints do not exist in the master server code; the full contract
-is section B1.
+Supplied by Frank on 2026-11-24 from Codex's backend
+implementation, and since shipped: the review-intent endpoints
+are live in production (a saved intent exists there). Listed
+separately from section A because they were supplied as a
+contract rather than read from the master server code; the full
+contract is section B1.
 
 | Operation (client method) | Method and path |
 | --- | --- |
@@ -110,11 +112,10 @@ is section B1.
 
 ### B1. Review intent (replaces the former field-edits proposal)
 
-Status: **specified by Frank, implemented in Codex's local backend,
-not deployed or merged. The UI is integrated against this contract
-now.** Until deployment, intent loads and saves fail with the
-server's error (today, a 404 from the deployed API), which the UI
-surfaces verbatim.
+Status: **specified by Frank, implemented in Codex's backend, and
+live in production.** Intent loads and saves run against the
+deployed API; when a call fails, the UI surfaces the server's
+error verbatim.
 
 A review intent records WHAT should be imported for a candidate, as
 an audited server-side snapshot. The backend retains the original
@@ -182,9 +183,9 @@ Rules the UI is built against:
 
 ### B2. Version 2 manifest entries (image-only imports)
 
-Status: **implemented in Codex's local backend, not reviewed or
-deployed. The pending-backend notice stays in the UI until the
-backend PRs are reviewed and deployed.**
+Status: **implemented in Codex's backend and shipped.** The UI
+describes image-only entries as part of the manifest they belong
+to; there is no pending-backend notice.
 
 Manifest content version 2 gives each entry a `kind`:
 

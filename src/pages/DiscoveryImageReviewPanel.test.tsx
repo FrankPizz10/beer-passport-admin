@@ -110,6 +110,39 @@ test("fetch button posts to the fetch endpoint and surfaces a rate-limit error",
   expect(await screen.findByRole("alert")).toHaveTextContent(/rate limit reached/);
 });
 
+test("image store unset: the fetch refusal renders the actionable unavailable state and keeps provenance", async () => {
+  mockGets([]);
+  const { ApiError } = jest.requireMock("../api/client");
+  mockApiPost.mockRejectedValueOnce(
+    new ApiError(503, "DISCOVERY_IMAGE_STORE is unset: the server cannot store fetched images.")
+  );
+  render(<DiscoveryImageReviewPanel candidate={candidate} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Fetch image for review" }));
+  // The dedicated unavailable state names the configuration
+  // problem, says who fixes it, and shows the server's own words.
+  expect(
+    await screen.findByText(/server image store is not configured/)
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/administrator must configure the store on the server/)
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/DISCOVERY_IMAGE_STORE is unset/)
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/not fetch or upload the origin URL yourself/)
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/Image approve\/reject stays disabled until a stored preview exists/)
+  ).toBeInTheDocument();
+  // Provenance remains visible as text; no preview is faked and no
+  // decision controls are offered.
+  expect(screen.getByText("https://images.example.com/alpha.png")).toBeInTheDocument();
+  expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Approve image" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Reject image" })).not.toBeInTheDocument();
+});
+
 test("failed fetch state: outcome and detail are surfaced, no preview, no decide controls", async () => {
   mockGets([failedFetch]);
   render(<DiscoveryImageReviewPanel candidate={candidate} />);

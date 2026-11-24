@@ -241,6 +241,54 @@ test("a final candidate shows no decision controls", async () => {
   ).not.toBeInTheDocument();
 });
 
+test("the review flow is five numbered sections with separate decisions, help tips, and no stale deployment copy", async () => {
+  mockGets(detail);
+  renderDetail();
+  expect(
+    await screen.findByRole("heading", { name: "Alpha Ale" })
+  ).toBeInTheDocument();
+  // The five-step structure, in order, as section headings.
+  for (const title of [
+    "Staged beer and source evidence",
+    "Review intent",
+    "Image review",
+    "Candidate decision",
+    "What happens next",
+  ]) {
+    expect(
+      screen.getByRole("heading", { name: title })
+    ).toBeInTheDocument();
+  }
+  // Decision separation is stated on the page: intent is not
+  // selection, and nothing here publishes or imports.
+  expect(
+    screen.getByText(/None of them implies another/)
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText(/publishes nothing on its own/)
+  ).toBeInTheDocument();
+  // Contextual help is present for the key terms, with accessible
+  // names.
+  for (const topic of [
+    "review intent",
+    "image decision",
+    "candidate selection",
+    "hold reasons",
+    "manifest hash",
+    "import",
+  ]) {
+    expect(
+      screen.getByRole("button", { name: `Help: ${topic}` })
+    ).toBeInTheDocument();
+  }
+  // Stale deployment-status copy is gone from the rendered page.
+  const pageText = document.body.textContent ?? "";
+  expect(pageText).not.toMatch(/not yet deployed/i);
+  expect(pageText).not.toMatch(/pending backend/i);
+  expect(pageText).not.toMatch(/not deployed or merged/i);
+  expect(pageText).not.toMatch(/implemented locally/i);
+});
+
 test("decision history renders the decider name, decision, and reason", async () => {
   mockGets(detail, {
     results: [

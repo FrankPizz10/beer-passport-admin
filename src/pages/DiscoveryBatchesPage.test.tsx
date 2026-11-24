@@ -139,3 +139,26 @@ test("surfaces manifest build eligibility blockers readably on a 422", async () 
     await screen.findByText(/off:2 \(candidate 12\): image_unverified/)
   ).toBeInTheDocument();
 });
+
+test("review progress renders as a progress bar with status chips at the API's real totals", async () => {
+  mockApiGet.mockResolvedValue({ results: [batch] });
+  render(
+    <MemoryRouter>
+      <DiscoveryBatchesPage />
+    </MemoryRouter>
+  );
+  expect(await screen.findByText("Wikidata Harvest")).toBeInTheDocument();
+  const bar = screen.getByRole("progressbar", {
+    name: /Review progress for Wikidata Harvest/,
+  });
+  expect(bar).toHaveAttribute("aria-valuenow", "25");
+  expect(bar).toHaveAttribute("aria-valuemin", "0");
+  expect(bar).toHaveAttribute("aria-valuemax", "100");
+  // Status chips carry text labels with the API's counts.
+  expect(screen.getByText("pending: 90")).toBeInTheDocument();
+  expect(screen.getByText("decided: 30")).toBeInTheDocument();
+  // The batch status itself is a labeled chip, and the record
+  // count is the full staged total (120), not a sample.
+  expect(screen.getByText("staged")).toBeInTheDocument();
+  expect(screen.getByText("120")).toBeInTheDocument();
+});

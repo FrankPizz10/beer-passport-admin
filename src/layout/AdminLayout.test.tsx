@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import AdminLayout from "./AdminLayout";
 import { onAuthStateChanged } from "firebase/auth";
@@ -43,4 +43,57 @@ test("no user navigates to sign in", async () => {
     </MemoryRouter>
   );
   expect(await screen.findByText("Sign In Screen")).toBeInTheDocument();
+});
+
+test("signed-in admin sees the shell; the nav toggle expands and collapses the sidebar", async () => {
+  const { apiGet } = jest.requireMock("../api/client");
+  (apiGet as jest.Mock).mockResolvedValue({
+    host: "localhost",
+    port: 54329,
+    database: "beerpassport_dev",
+    firebase_configured: false,
+  });
+  mockOnAuth.mockImplementation((_auth: unknown, cb: (u: unknown) => void) => {
+    cb({
+      email: "admin@example.com",
+      getIdTokenResult: () =>
+        Promise.resolve({ claims: { admin: true } }),
+    });
+    return () => {};
+  });
+  render(
+    <MemoryRouter initialEntries={["/admin/discovery/batches"]}>
+      <Routes>
+        <Route path="/" element={<div>Sign In Screen</div>} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route
+            path="discovery/batches"
+            element={<div>Batch Content</div>}
+          />
+        </Route>
+      </Routes>
+    </MemoryRouter>
+  );
+  expect(await screen.findByText("Batch Content")).toBeInTheDocument();
+  // Breadcrumb reflects the route.
+  expect(
+    screen.getByRole("navigation", { name: "Breadcrumb" })
+  ).toHaveTextContent(/Discovery/);
+  const toggle = screen.getByRole("button", {
+    name: "Toggle navigation menu",
+  });
+  const nav = screen.getByRole("navigation", { name: "Admin" });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(nav.className).not.toContain("open");
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(nav.className).toContain("open");
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(nav.className).not.toContain("open");
+  // Active navigation is visible: the Batches link carries the
+  // router's active class.
+  expect(screen.getByRole("link", { name: "Batches" }).className).toContain(
+    "active"
+  );
 });

@@ -17,6 +17,7 @@ import {
 import { Beer, DiscoveryCandidateDetail } from "../api/types";
 import { useApiData } from "../api/useApiData";
 import { fmtDate } from "./helpers";
+import HelpTip from "./HelpTip";
 import { Loading } from "./States";
 
 // Review intent for one staged candidate (contract section B1):
@@ -297,17 +298,15 @@ const DiscoveryCandidateFieldReview: React.FC<{
   const controlsDisabled = !isPending || busy || conflict;
 
   return (
-    <section aria-labelledby="review-intent-heading">
-      <h2 id="review-intent-heading">Review Intent</h2>
+    <div className="field-review">
       <p role="note">
         A review intent records what should be imported for this
-        candidate. It is separate from the Select / Hold / Reject
-        decision below: saving an intent does not select the
-        candidate, and selecting does not create an intent. The
-        review-intent endpoints are part of Codex's backend (contract
-        section B1), implemented locally and not yet deployed; until
-        deployment, loading and saving an intent fail with the
-        server's error.
+        candidate, as an audited snapshot saved on the server (the
+        server keeps the original staged payload). It is separate
+        from the Select / Hold / Reject decision in step 4: saving
+        an intent does not select the candidate, and selecting does
+        not create an intent. If the server refuses a save, its own
+        error message is shown here.
       </p>
       {!isPending && (
         <p role="note">
@@ -377,122 +376,189 @@ const DiscoveryCandidateFieldReview: React.FC<{
         </div>
       )}
 
-      <fieldset disabled={controlsDisabled}>
+      <fieldset disabled={controlsDisabled} className="intent-form">
         <legend>Intent mode</legend>
-        <label>
-          <input
-            type="radio"
-            name="review-intent-mode"
-            value="new_beer"
-            checked={mode === "new_beer"}
-            onChange={() => setMode("new_beer")}
-          />{" "}
-          New beer
-        </label>{" "}
-        <label>
-          <input
-            type="radio"
-            name="review-intent-mode"
-            value="image_only"
-            checked={mode === "image_only"}
-            onChange={() => setMode("image_only")}
-          />{" "}
-          Image only for an existing beer
-        </label>
+        <div className="mode-picker">
+          <div
+            className={
+              mode === "new_beer" ? "mode-option checked" : "mode-option"
+            }
+          >
+            <label>
+              <input
+                type="radio"
+                name="review-intent-mode"
+                value="new_beer"
+                checked={mode === "new_beer"}
+                onChange={() => setMode("new_beer")}
+              />{" "}
+              New beer
+            </label>
+            <span className="mode-desc">
+              Import this candidate as a new catalog beer, using the
+              field values below.
+            </span>
+          </div>
+          <div
+            className={
+              mode === "image_only" ? "mode-option checked" : "mode-option"
+            }
+          >
+            <label>
+              <input
+                type="radio"
+                name="review-intent-mode"
+                value="image_only"
+                checked={mode === "image_only"}
+                onChange={() => setMode("image_only")}
+              />{" "}
+              Image only for an existing beer
+            </label>
+            <span className="mode-desc">
+              Attach only this candidate's image to one existing
+              catalog beer you choose and confirm. No beer is created
+              or changed.
+            </span>
+          </div>
+        </div>
 
         {mode === "new_beer" ? (
           <>
-            <table className="field-review-table">
-              <thead>
-                <tr>
-                  <th scope="col">Field</th>
-                  <th scope="col">Original (staged)</th>
-                  <th scope="col">Proposed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {REVIEW_FIELDS.map((def) => {
-                  const original = originalFieldValue(candidate, def.field);
-                  const issue = def.editable
-                    ? fieldIssues.get(def.field) ?? null
-                    : null;
-                  const inputId = `field-edit-${def.field}`;
-                  const issueId = `field-issue-${def.field}`;
-                  return (
-                    <tr key={def.field}>
-                      <th scope="row">{def.label}</th>
-                      <td>{original === "" ? "None" : original}</td>
-                      <td>
-                        {def.editable ? (
-                          <>
-                            <label
-                              className="visually-hidden"
-                              htmlFor={inputId}
-                            >
-                              Proposed {def.label}
-                            </label>
-                            {def.field === "description" ? (
-                              <textarea
-                                id={inputId}
-                                value={proposed[def.field] ?? original}
-                                rows={2}
-                                aria-describedby={issue ? issueId : undefined}
-                                aria-invalid={
-                                  issue?.level === "error" || undefined
-                                }
-                                onChange={(e) =>
-                                  setProposed((prev) => ({
-                                    ...prev,
-                                    [def.field]: e.target.value,
-                                  }))
-                                }
-                              />
-                            ) : (
-                              <input
-                                id={inputId}
-                                type="text"
-                                value={proposed[def.field] ?? original}
-                                aria-describedby={issue ? issueId : undefined}
-                                aria-invalid={
-                                  issue?.level === "error" || undefined
-                                }
-                                onChange={(e) =>
-                                  setProposed((prev) => ({
-                                    ...prev,
-                                    [def.field]: e.target.value,
-                                  }))
-                                }
-                              />
-                            )}
-                          </>
-                        ) : (
-                          <span>
-                            Not editable. Changing the image URL needs a
-                            separate audited refetch and invalidation
-                            design, and an approved image hash never
-                            carries over to a new URL.
-                          </span>
-                        )}
-                        {issue && (
-                          <p
-                            id={issueId}
-                            className={
-                              issue.level === "error"
-                                ? "field-issue-error"
-                                : "field-issue-warning"
-                            }
-                            aria-live="polite"
+            <div className="field-compare">
+              <div className="field-compare-head" aria-hidden="true">
+                <div>Field</div>
+                <div>Staged (original)</div>
+                <div>Proposed</div>
+              </div>
+              {REVIEW_FIELDS.map((def) => {
+                const original = originalFieldValue(candidate, def.field);
+                const issue = def.editable
+                  ? fieldIssues.get(def.field) ?? null
+                  : null;
+                const inputId = `field-edit-${def.field}`;
+                const issueId = `field-issue-${def.field}`;
+                const changed =
+                  def.editable &&
+                  (proposed[def.field] ?? original) !== original;
+                return (
+                  <div
+                    className={
+                      changed ? "field-row field-row-changed" : "field-row"
+                    }
+                    key={def.field}
+                  >
+                    <div className="field-name">
+                      {def.label}
+                      {!def.editable && (
+                        <span className="field-helper">Read-only</span>
+                      )}
+                    </div>
+                    <div className="field-staged">
+                      <span className="field-cell-label">Staged</span>
+                      {original === "" ? "None" : original}
+                    </div>
+                    <div className="field-proposed">
+                      <span className="field-cell-label">Proposed</span>
+                      {def.editable ? (
+                        <>
+                          <label
+                            className="visually-hidden"
+                            htmlFor={inputId}
                           >
-                            {issue.level === "error" ? "Error: " : "Warning: "}
-                            {issue.message}
-                          </p>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            Proposed {def.label}
+                          </label>
+                          {def.field === "description" ? (
+                            <textarea
+                              id={inputId}
+                              value={proposed[def.field] ?? original}
+                              rows={2}
+                              aria-describedby={issue ? issueId : undefined}
+                              aria-invalid={
+                                issue?.level === "error" || undefined
+                              }
+                              onChange={(e) =>
+                                setProposed((prev) => ({
+                                  ...prev,
+                                  [def.field]: e.target.value,
+                                }))
+                              }
+                            />
+                          ) : (
+                            <input
+                              id={inputId}
+                              type="text"
+                              value={proposed[def.field] ?? original}
+                              aria-describedby={issue ? issueId : undefined}
+                              aria-invalid={
+                                issue?.level === "error" || undefined
+                              }
+                              onChange={(e) =>
+                                setProposed((prev) => ({
+                                  ...prev,
+                                  [def.field]: e.target.value,
+                                }))
+                              }
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <span>
+                          Not editable. Changing the image URL needs a
+                          separate audited refetch and invalidation
+                          design, and an approved image hash never
+                          carries over to a new URL.
+                        </span>
+                      )}
+                      {issue && (
+                        <p
+                          id={issueId}
+                          className={
+                            issue.level === "error"
+                              ? "field-issue-error"
+                              : "field-issue-warning"
+                          }
+                          aria-live="polite"
+                        >
+                          {issue.level === "error" ? "Error: " : "Warning: "}
+                          {issue.message}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {fieldIssues.size > 0 && (
+              <div
+                className={
+                  hardErrors.length > 0
+                    ? "validation-summary has-errors"
+                    : "validation-summary"
+                }
+                aria-live="polite"
+              >
+                <strong>
+                  {hardErrors.length > 0
+                    ? `${hardErrors.length} field error${
+                        hardErrors.length === 1 ? "" : "s"
+                      } to fix before saving`
+                    : "Field warnings to review"}
+                  :
+                </strong>
+                <ul>
+                  {REVIEW_FIELDS.filter((def) => fieldIssues.has(def.field)).map(
+                    (def) => {
+                      const issue = fieldIssues.get(def.field)!;
+                      return (
+                        <li key={def.field}>
+                          {def.label}: {issue.message}
+                        </li>
+                      );
+                    }
+                  )}
+                </ul>
+              </div>
+            )}
             <div aria-live="polite">
               {edits.length === 0 ? (
                 <p>
@@ -527,12 +593,23 @@ const DiscoveryCandidateFieldReview: React.FC<{
           </>
         ) : (
           <div>
-            <h3>Target catalog beer</h3>
+            <h3>
+              Target catalog beer
+              <HelpTip topic="image-only target">
+                The image-only target is the one existing catalog beer
+                this candidate's image will be attached to. Search by
+                name, check the beer ID and brewery (several beers can
+                share a name), then explicitly confirm the exact
+                target before saving.
+              </HelpTip>
+            </h3>
             <p>
               Search the catalog and pick the beer this candidate's
               image belongs to. The staging collision detector does
               not choose this target, and a target can be found even
-              when the detector reported no match.
+              when the detector reported no match. Results marked
+              "Name variant" share part of the name but are different
+              beers; check the ID and brewery before choosing.
             </p>
             <div>
               <label htmlFor="intent-target-search">
@@ -561,22 +638,41 @@ const DiscoveryCandidateFieldReview: React.FC<{
               (searchResults.length === 0 ? (
                 <p>No catalog beers match that search.</p>
               ) : (
-                <ul>
-                  {searchResults.map((beer) => (
-                    <li key={beer.id}>
-                      #{beer.id} - {beer.name}
-                      {beer.brewery ? ` (${beer.brewery.name})` : ""}{" "}
-                      <button
-                        type="button"
-                        onClick={() => pickTarget(beer)}
-                        disabled={targetBeer?.id === beer.id}
-                      >
-                        {targetBeer?.id === beer.id
-                          ? "Chosen as target"
-                          : "Choose as target"}
-                      </button>
-                    </li>
-                  ))}
+                <ul className="target-results">
+                  {searchResults.map((beer) => {
+                    const exactMatch =
+                      beer.name.trim().toLowerCase() ===
+                      searchQuery.trim().toLowerCase();
+                    return (
+                      <li key={beer.id} className="target-result">
+                        <span className="target-result-main">
+                          <strong>{beer.name}</strong>{" "}
+                          <span className="beer-id">#{beer.id}</span>
+                          {beer.brewery
+                            ? ` · ${beer.brewery.name}`
+                            : " · brewery not recorded"}{" "}
+                          <span
+                            className={
+                              exactMatch
+                                ? "match-badge match-badge--exact"
+                                : "match-badge match-badge--variant"
+                            }
+                          >
+                            {exactMatch ? "Exact name match" : "Name variant"}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => pickTarget(beer)}
+                          disabled={targetBeer?.id === beer.id}
+                        >
+                          {targetBeer?.id === beer.id
+                            ? "Chosen as target"
+                            : "Choose as target"}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               ))}
             {targetBeer ? (
@@ -627,6 +723,7 @@ const DiscoveryCandidateFieldReview: React.FC<{
         <div className="decision-actions">
           <button
             type="button"
+            className="btn btn-primary"
             onClick={save}
             disabled={
               controlsDisabled ||
@@ -651,7 +748,7 @@ const DiscoveryCandidateFieldReview: React.FC<{
           {saveError}
         </div>
       )}
-    </section>
+    </div>
   );
 };
 

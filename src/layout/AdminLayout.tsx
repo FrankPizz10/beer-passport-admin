@@ -6,6 +6,55 @@ import { apiGet } from "../api/client";
 import { TargetInfo } from "../api/types";
 import ErrorBoundary from "../components/ErrorBoundary";
 
+// Breadcrumb labels for the route segments under /admin. Detail
+// routes (an id segment) collapse to a generic final crumb so raw
+// ids never become the page's only context.
+const CRUMB_LABELS: Record<string, string> = {
+  catalog: "Catalog",
+  overview: "Overview",
+  beers: "Beers",
+  breweries: "Breweries",
+  categories: "Categories",
+  styles: "Styles",
+  collections: "Collections",
+  "beverage-images": "Beverage Images",
+  "image-queue": "Image Queue",
+  discovery: "Discovery",
+  batches: "Batches",
+  manifests: "Manifests",
+  candidates: "Candidates",
+  decisions: "Decision Audit",
+  pairs: "Duplicate Pair",
+  users: "Users",
+  admin: "Admin Accounts",
+  accounts: "Accounts",
+  "api-keys": "API Keys",
+};
+
+const buildCrumbs = (pathname: string): { label: string; to?: string }[] => {
+  const segments = pathname
+    .replace(/^\/admin\/?/, "")
+    .split("/")
+    .filter(Boolean);
+  const crumbs: { label: string; to?: string }[] = [];
+  let path = "/admin";
+  segments.forEach((segment, index) => {
+    const isLast = index === segments.length - 1;
+    const numeric = /^\d+$/.test(segment);
+    const longId = segment.length > 24; // manifest ids and similar
+    if (numeric || longId) {
+      crumbs.push({ label: "Detail" });
+      return;
+    }
+    path += `/${segment}`;
+    crumbs.push({
+      label: CRUMB_LABELS[segment] ?? segment,
+      to: isLast ? undefined : path,
+    });
+  });
+  return crumbs;
+};
+
 // Client side guarding is UX only. The server rechecks the admin claim on
 // every API request, so this layout is not a security boundary.
 const AdminLayout: React.FC = () => {
@@ -81,7 +130,10 @@ const AdminLayout: React.FC = () => {
         >
           &#9776;
         </button>
-        <div className="header-title">BeerPassport Admin Viewer</div>
+        <div className="header-title">
+          <span className="brand-badge" aria-hidden="true">BP</span>{" "}
+          BeerPassport <span className="brand-mark">Admin</span>
+        </div>
         <div className="header-meta">
           {target && (
             <span className="chip" title="Database target">
@@ -119,6 +171,28 @@ const AdminLayout: React.FC = () => {
           <NavLink to="admin/api-keys">API Keys</NavLink>
         </nav>
         <main className="admin-main">
+          {(() => {
+            const crumbs = buildCrumbs(location.pathname);
+            if (crumbs.length === 0) return null;
+            return (
+              <nav className="breadcrumb" aria-label="Breadcrumb">
+                {crumbs.map((crumb, index) => (
+                  <React.Fragment key={`${crumb.label}-${index}`}>
+                    {index > 0 && (
+                      <span className="crumb-sep" aria-hidden="true">
+                        /
+                      </span>
+                    )}
+                    {crumb.to ? (
+                      <NavLink to={crumb.to}>{crumb.label}</NavLink>
+                    ) : (
+                      <span aria-current="page">{crumb.label}</span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </nav>
+            );
+          })()}
           <ErrorBoundary resetKey={location.pathname}>
             <Outlet />
           </ErrorBoundary>
