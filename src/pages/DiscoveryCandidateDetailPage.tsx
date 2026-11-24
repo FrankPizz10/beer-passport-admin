@@ -9,6 +9,7 @@ import {
 } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
 import { fmtBool, fmtDate, fmtVal } from "../components/helpers";
+import DiscoveryImageReviewPanel from "./DiscoveryImageReviewPanel";
 
 // The hold-reason vocabulary (issues/001); the API requires one for
 // hold and reject decisions and refuses the decision without it.
@@ -148,6 +149,8 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">License</span>{fmtVal(data.image_license)}</div>
         <div><span className="field-label">Image Page URL</span>{data.image_page_url ? <a href={data.image_page_url}>{data.image_page_url}</a> : "None"}</div>
       </div>
+
+      <DiscoveryImageReviewPanel candidate={data} onDecisionRecorded={reload} />
 
       <h2>Review State</h2>
       <div className="detail-grid">

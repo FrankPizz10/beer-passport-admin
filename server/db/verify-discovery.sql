@@ -85,4 +85,69 @@ EXCEPTION WHEN insufficient_privilege THEN
   RAISE NOTICE 'PASS: DELETE on discovery_batches denied';
 END $$;
 
+-- Image review tables (migration 004): the viewer reads both (the
+-- fetch history, previews' metadata, and the decision history are
+-- browsing surfaces) and writes neither.
+SELECT count(*) AS discovery_image_fetches_readable FROM discovery_image_fetches;
+SELECT count(*) AS discovery_image_decisions_readable FROM discovery_image_decisions;
+DO $$ BEGIN RAISE NOTICE 'PASS: discovery image reads succeed'; END $$;
+
+DO $$
+BEGIN
+  INSERT INTO discovery_image_fetches (candidate_id, image_ref, outcome)
+  VALUES (-1, 'https://example.invalid/x.png', 'success');
+  RAISE EXCEPTION 'FAIL: INSERT into discovery_image_fetches succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: INSERT into discovery_image_fetches denied';
+END $$;
+
+DO $$
+BEGIN
+  UPDATE discovery_image_fetches SET outcome = outcome WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: UPDATE on discovery_image_fetches succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: UPDATE on discovery_image_fetches denied';
+END $$;
+
+DO $$
+BEGIN
+  DELETE FROM discovery_image_fetches WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: DELETE on discovery_image_fetches succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: DELETE on discovery_image_fetches denied';
+END $$;
+
+DO $$
+BEGIN
+  INSERT INTO discovery_image_decisions (candidate_id, fetch_id, image_ref, image_sha256, decision)
+  VALUES (-1, -1, 'https://example.invalid/x.png', repeat('0', 64), 'approved');
+  RAISE EXCEPTION 'FAIL: INSERT into discovery_image_decisions succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: INSERT into discovery_image_decisions denied';
+END $$;
+
+DO $$
+BEGIN
+  UPDATE discovery_image_decisions SET note = note WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: UPDATE on discovery_image_decisions succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: UPDATE on discovery_image_decisions denied';
+END $$;
+
+DO $$
+BEGIN
+  DELETE FROM discovery_image_decisions WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: DELETE on discovery_image_decisions succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: DELETE on discovery_image_decisions denied';
+END $$;
+
+DO $$
+BEGIN
+  UPDATE discovery_candidates SET image_decision = 'approved' WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: UPDATE of image_decision on discovery_candidates succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: UPDATE of image_decision on discovery_candidates denied';
+END $$;
+
 ROLLBACK;

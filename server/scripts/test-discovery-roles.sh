@@ -4,14 +4,14 @@
 #
 # Builds a throwaway socket-only PostgreSQL 16 cluster from the
 # db-recovery workstream binaries, applies the catalog base schema,
-# migrations 001-003, the viewer role, and the discovery reviewer
+# migrations 001-004, the viewer role, and the discovery reviewer
 # role, then:
 #   1. runs server/db/verify-discovery.sql AS the viewer (must pass),
 #   2. runs server/db/verify-discovery-reviewer.sql AS the reviewer
 #      (must pass),
 #   3. seeds one admin user and runs the RUN_DB_TESTS-guarded decision
-#      integration suite with the API connected as viewer (reads) +
-#      reviewer (writes).
+#      and image-review integration suites with the API connected as
+#      viewer (reads) + reviewer (writes).
 # Everything lives in a mktemp scratch directory and is deleted on
 # exit. No production database, no network listener (unix socket
 # only), no Docker.
@@ -71,11 +71,12 @@ test -s "${SCRATCH}/base.sql"
 (cd "${SERVER_DIR}" && CHECKPOINT_DISABLE=1 npx prisma generate >/dev/null)
 "${PSQL_DB[@]}" -q -f "${SCRATCH}/base.sql"
 
-echo "== migrations 001-003 and roles =="
+echo "== migrations 001-004 and roles =="
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/001-image-approval.sql"
 "${PSQL_DB[@]}" -q -v viewer_password="${VIEWER_PW}" -f "${SERVER_DIR}/db/readonly-role.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/002-discovery-staging.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/003-discovery-decisions.sql"
+"${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/004-discovery-image-review.sql"
 "${PSQL_DB[@]}" -q -v reviewer_password="${REVIEWER_PW}" -f "${SERVER_DIR}/db/discovery-reviewer-role.sql"
 
 echo "== seed admin user =="
@@ -91,10 +92,10 @@ PGPASSWORD="${REVIEWER_PW}" "${PGBIN}/psql" -h "${SCRATCH}" -p "${PGPORT}" \
   -U beerpassport_discovery_reviewer -d "${DBNAME}" -v ON_ERROR_STOP=1 \
   -f "${SERVER_DIR}/db/verify-discovery-reviewer.sql"
 
-echo "== decision endpoint integration tests (RUN_DB_TESTS=1) =="
+echo "== decision + image endpoint integration tests (RUN_DB_TESTS=1) =="
 export DATABASE_URL="postgresql://beerpassport_admin_viewer:${VIEWER_PW}@localhost:${PGPORT}/${DBNAME}?host=${SCRATCH}"
 export DATABASE_URL_DISCOVERY_WRITE="postgresql://beerpassport_discovery_reviewer:${REVIEWER_PW}@localhost:${PGPORT}/${DBNAME}?host=${SCRATCH}"
 export DISCOVERY_TEST_OWNER_URL="postgresql://postgres@localhost:${PGPORT}/${DBNAME}?host=${SCRATCH}"
-(cd "${SERVER_DIR}" && RUN_DB_TESTS=1 npx jest test/discoveryDecisions.integration.test.ts 2>&1 | tail -n 8)
+(cd "${SERVER_DIR}" && RUN_DB_TESTS=1 npx jest test/discoveryDecisions.integration.test.ts test/discoveryImages.integration.test.ts 2>&1 | tail -n 8)
 
 echo "ALL DISCOVERY ROLE CHECKS PASSED"

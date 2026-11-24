@@ -1,11 +1,15 @@
 -- Dedicated discovery-review role for the BeerPassport Admin catalog
 -- discovery hub (hub decision 006, issues/001-catalog-discovery-hub.md
--- section 3). This is the write identity for the discovery decision
--- endpoints ONLY (server/src/routes/discoveryDecisions.ts), and it can
--- write exactly three things: the decision columns of
+-- section 3). This is the write identity for the discovery review
+-- endpoints (server/src/routes/discoveryDecisions.ts and, since the
+-- image review phase, server/src/routes/discoveryImages.ts), and it
+-- can write exactly these things: the decision columns of
 -- discovery_candidates, the decision columns of
--- discovery_candidate_pairs, and the discovery_decisions audit table
--- (migration server/db/migrations/003-discovery-decisions.sql). The
+-- discovery_candidate_pairs, the discovery_decisions audit table
+-- (migration server/db/migrations/003-discovery-decisions.sql), the
+-- image fetch log and image decision audit tables, and the candidate
+-- image-decision state columns (migration
+-- server/db/migrations/004-discovery-image-review.sql). The
 -- viewer role (beerpassport_admin_viewer) stays SELECT-only and is
 -- untouched by this script; the approver role
 -- (beerpassport_admin_approver) is likewise untouched.
@@ -13,8 +17,9 @@
 -- Run this ONCE, as a PostgreSQL superuser (for example the postgres
 -- role), against the target database, with the role password supplied
 -- out of band, never in the file. Migrations
--- server/db/migrations/002-discovery-staging.sql and
--- server/db/migrations/003-discovery-decisions.sql must be applied
+-- server/db/migrations/002-discovery-staging.sql,
+-- server/db/migrations/003-discovery-decisions.sql, and
+-- server/db/migrations/004-discovery-image-review.sql must be applied
 -- FIRST: the grants below name their tables and columns, and if they
 -- are missing the script fails and rolls back (fail closed by
 -- construction).
@@ -96,9 +101,11 @@ $$;
 -- The whitelist is exactly the intended grants: CONNECT on this
 -- database, USAGE on public, table-level SELECT on discovery_batches,
 -- discovery_candidates, discovery_candidate_pairs, beers, and
--- breweries, INSERT and SELECT on discovery_decisions, USAGE on its
--- id sequence, and the two column-level UPDATE sets on candidates and
--- pairs. Anything else is listed and the run refuses to continue.
+-- breweries, INSERT and SELECT on discovery_decisions,
+-- discovery_image_fetches, and discovery_image_decisions, USAGE on
+-- their id sequences, and the column-level UPDATE sets on candidates
+-- (decision columns plus image-decision state columns) and pairs.
+-- Anything else is listed and the run refuses to continue.
 DO $$
 DECLARE
   reviewer_oid oid := (SELECT oid FROM pg_roles WHERE rolname = 'beerpassport_discovery_reviewer');
@@ -133,9 +140,12 @@ BEGIN
         AND ((c.relname IN ('discovery_batches', 'discovery_candidates',
               'discovery_candidate_pairs', 'beers', 'breweries')
               AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
-          OR (c.relname = 'discovery_decisions' AND c.relkind = 'r'
+          OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
+              'discovery_image_decisions') AND c.relkind = 'r'
               AND a.privilege_type IN ('INSERT', 'SELECT'))
-          OR (c.relname = 'discovery_decisions_id_seq' AND c.relkind = 'S'
+          OR (c.relname IN ('discovery_decisions_id_seq',
+              'discovery_image_fetches_id_seq',
+              'discovery_image_decisions_id_seq') AND c.relkind = 'S'
               AND a.privilege_type = 'USAGE')))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
@@ -153,7 +163,9 @@ BEGIN
         AND ((c.relname = 'discovery_candidates'
               AND a.privilege_type = 'UPDATE'
               AND att.attname IN ('review_status', 'hold_reason',
-                'duplicate_of_candidate_id', 'updated_at'))
+                'duplicate_of_candidate_id', 'updated_at',
+                'image_decision', 'image_decision_fetch_id',
+                'image_decision_at'))
           OR (c.relname = 'discovery_candidate_pairs'
               AND a.privilege_type = 'UPDATE'
               AND att.attname IN ('status', 'decided_by', 'decided_at'))))
@@ -243,8 +255,11 @@ GRANT SELECT ON discovery_batches, discovery_candidates,
 
 -- Candidate decision columns only (issues/001 section 3): the review
 -- status, its hold reason, the duplicate pointer a pair decision sets,
--- and the row timestamp. No INSERT, no DELETE, no other column.
-GRANT UPDATE (review_status, hold_reason, duplicate_of_candidate_id, updated_at)
+-- the image-decision state a hash-bound image decision projects
+-- (migration 004), and the row timestamp. No INSERT, no DELETE, no
+-- other column.
+GRANT UPDATE (review_status, hold_reason, duplicate_of_candidate_id, updated_at,
+  image_decision, image_decision_fetch_id, image_decision_at)
   ON discovery_candidates TO beerpassport_discovery_reviewer;
 
 -- Pair decision columns only: the pair status and its decider stamp.
@@ -254,6 +269,16 @@ GRANT UPDATE (status, decided_by, decided_at)
 -- The audit trail: append (INSERT) and read back (SELECT), nothing else.
 GRANT INSERT, SELECT ON discovery_decisions TO beerpassport_discovery_reviewer;
 GRANT USAGE ON SEQUENCE discovery_decisions_id_seq TO beerpassport_discovery_reviewer;
+
+-- Image review (migration 004): the fetch log and the image decision
+-- audit are append-and-read for this role, exactly like
+-- discovery_decisions. The fetcher writes one fetches row per attempt;
+-- the decision endpoint inserts the decision row and projects the
+-- candidate state columns above. No UPDATE or DELETE on either table.
+GRANT INSERT, SELECT ON discovery_image_fetches, discovery_image_decisions
+  TO beerpassport_discovery_reviewer;
+GRANT USAGE ON SEQUENCE discovery_image_fetches_id_seq,
+  discovery_image_decisions_id_seq TO beerpassport_discovery_reviewer;
 
 -- Belt and braces: no default privileges may auto-grant this role
 -- anything on future tables.
