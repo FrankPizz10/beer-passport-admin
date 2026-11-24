@@ -79,9 +79,10 @@ import {
 } from '../pagination';
 import {
   buildManifestContent, computeCatalogFingerprint, evaluateEligibility,
-  manifestIdFor, manifestSha256, canonicalManifestBytes, normalizeText,
-  BreweryLookup, StyleLookup,
+  manifestIdFor, manifestSha256, canonicalManifestBytes, normalizeText, reviewPayloadSha256,
+  BreweryLookup, StyleLookup, REVIEW_MANIFEST_SCHEMA,
 } from '../discoveryManifestCore';
+import { parseReviewIntent } from '../discoveryReviewIntent';
 
 const wrap = (fn: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response) => { fn(req, res).catch((e) => sendError(res, e)); };
@@ -188,6 +189,15 @@ export const createDiscoveryManifestsRouter = (
       );
     }
     const candidateIds = selected.map((c: any) => c.id);
+    const intentRows = await readPrisma.discovery_review_intents.findMany({
+      where: { candidate_id: { in: candidateIds } }, orderBy: [{ id: 'desc' }],
+    });
+    const intentsByCandidate = new Map<number, { id: number; intent: ReturnType<typeof parseReviewIntent> }>();
+    for (const row of intentRows) {
+      if (!intentsByCandidate.has(row.candidate_id)) {
+        intentsByCandidate.set(row.candidate_id, { id: row.id, intent: parseReviewIntent(row.intent) });
+      }
+    }
 
     // The selection decision each candidate's state rests on: the
     // latest candidate-gate decision row per candidate (pair
@@ -250,7 +260,18 @@ export const createDiscoveryManifestsRouter = (
 
     const blockers: Array<{ candidate_id: number; candidate_key: string; reasons: string[] }> = [];
     const records = [];
-    for (const candidate of selected) {
+    for (const staged of selected) {
+      const reviewIntent = intentsByCandidate.get(staged.id) ?? null;
+      const candidate = reviewIntent?.intent.mode === 'new_beer'
+        ? { ...staged, ...reviewIntent.intent.beer, normalized_brewery: normalizeText(reviewIntent.intent.beer.brewery_name) }
+        : staged;
+      if (reviewIntent?.intent.mode === 'image_only') {
+        const target = await readPrisma.beers.findUnique({ where: { id: reviewIntent.intent.target_beer_id }, select: { id: true } });
+        if (!target) {
+          blockers.push({ candidate_id: staged.id, candidate_key: staged.candidate_key, reasons: ['target_beer_missing'] });
+          continue;
+        }
+      }
       const latest = latestDecisionByCandidate.get(candidate.id);
       const selectionDecisionId =
         latest && latest.decision === 'select' && latest.to_status === 'selected' ? latest.id : null;
@@ -279,6 +300,7 @@ export const createDiscoveryManifestsRouter = (
 
       const result = evaluateEligibility({
         candidate,
+        reviewIntent,
         selectionDecisionId,
         unresolvedPairs: pairsByCandidate.get(candidate.id) || 0,
         imageDecision: imageDecision
@@ -292,7 +314,7 @@ export const createDiscoveryManifestsRouter = (
         brewery,
         style,
       });
-      if (result.ok) records.push(result.record);
+      if (result.ok) records.push({ ...result.record, payload_sha256: reviewPayloadSha256(staged.payload) });
       else blockers.push({ candidate_id: result.candidate_id, candidate_key: result.candidate_key, reasons: result.reasons });
     }
 
@@ -326,6 +348,7 @@ export const createDiscoveryManifestsRouter = (
     }
     const id = manifestIdFor(batch.slug, now, seq);
     const content = buildManifestContent({
+      schema: REVIEW_MANIFEST_SCHEMA,
       id,
       batch: { id: batch.id, slug: batch.slug, bundle_sha256: batch.bundle_sha256 },
       fingerprint,

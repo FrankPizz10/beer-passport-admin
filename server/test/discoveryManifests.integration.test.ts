@@ -43,6 +43,7 @@ import { createRestrictedFetcher, defaultSeams, sha256Hex } from '../src/discove
 import { createImageStore } from '../src/discoveryImageStore';
 import { ImportRefusedError, runImport } from '../scripts/import-discovery-manifest';
 import { discoveryObjectKey } from '../src/discoveryImageUpload';
+import { manifestSha256, payloadSha256 } from '../src/discoveryManifestCore';
 
 const run = process.env.RUN_DB_TESTS === '1' ? describe : describe.skip;
 
@@ -205,7 +206,7 @@ run('discovery manifests + import executor against the disposable database', () 
       where: { batch_id: batchId },
       orderBy: { candidate_key: 'asc' },
     });
-    expect(candidates.length).toBe(25);
+    expect(candidates.length).toBe(Number(process.env.REVIEW_TEST_SEED_COUNT || 25));
     const pairs = await owner.discovery_candidate_pairs.findMany({
       where: { batch_id: batchId, status: 'pending' },
     });
@@ -256,8 +257,8 @@ run('discovery manifests + import executor against the disposable database', () 
   afterAll(async () => {
     await owner.$disconnect();
     await loader.$disconnect();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.rmSync(storeDir, { recursive: true, force: true });
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (storeDir) fs.rmSync(storeDir, { recursive: true, force: true });
   });
 
   const fetchImage = () => seamFetchImage;
@@ -739,6 +740,126 @@ run('discovery manifests + import executor against the disposable database', () 
     expect(stored?.status).toBe('approved');
     const after = await owner.discovery_candidates.findUnique({ where: { id: candidate.id } });
     expect(after?.review_status).toBe('selected');
+    await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('imports an approved image onto an explicit existing beer without inserting a beer', async () => {
+    const candidate = await takeCandidate();
+    await approveImageViaStub(candidate, `/img/image-only-${candidate.id}.png`);
+    const intent = await asAdmin(request(app).post(`/admin-api/v1/discovery/candidates/${candidate.id}/review-intent`))
+      .send({ expected_revision: null, intent: { mode: 'image_only', target_beer_id: 101 } });
+    expect(intent.status).toBe(201);
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const beforeBeers = await beerCount();
+    const beforeImages = await imageCount();
+    const report = await runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps());
+    expect(report.beers_inserted).toBe(0);
+    expect(report.images_inserted).toBe(1);
+    expect(await beerCount()).toBe(beforeBeers);
+    expect(await imageCount()).toBe(beforeImages + 1);
+    const image = await owner.beverage_images.findUnique({ where: { id: report.id_assignments[0].image_id as number } });
+    expect(image?.beverage_id).toBe(101);
+    expect(image?.storage_key).toBe(expectedStorageKey);
+  });
+
+  it('imports explicitly reviewed beer fields and keeps the staged payload unchanged', async () => {
+    const candidate = await takeCandidate();
+    await owner.discovery_candidates.update({ where: { id: candidate.id }, data: { image_url: null } });
+    const original = await owner.discovery_candidates.findUnique({ where: { id: candidate.id } });
+    const beer = { name: `Reviewed Ale ${candidate.id}`, brewery_name: candidate.brewery_name,
+      style: candidate.style ?? null, abv: 4.2, ibu: candidate.ibu ?? null, barcode: null, description: candidate.description ?? null };
+    const intent = await asAdmin(request(app).post(`/admin-api/v1/discovery/candidates/${candidate.id}/review-intent`))
+      .send({ expected_revision: null, intent: { mode: 'new_beer', beer } });
+    expect(intent.status).toBe(201);
+    const audit = await (owner as any).discovery_review_intents.findUnique({ where: { id: intent.body.id } });
+    expect(audit.previous_intent.beer.name).toBe(original?.name);
+    expect(audit.previous_intent.beer.abv).toBe(original?.abv);
+    expect(audit.decided_by).toBe(adminId);
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const report = await runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps());
+    expect(report.beers_inserted).toBe(1);
+    const inserted = await owner.beers.findUnique({ where: { id: report.id_assignments[0].beer_id } });
+    expect(inserted?.name).toBe(beer.name);
+    expect(inserted?.abv).toBe(4.2);
+    const after = await owner.discovery_candidates.findUnique({ where: { id: candidate.id } });
+    expect(after?.payload).toEqual(original?.payload);
+  });
+
+  it('refuses to attach the same approved bytes to the same beer twice', async () => {
+    const candidate = await takeCandidate();
+    await approveImageViaStub(candidate, `/img/duplicate-image-${candidate.id}.png`);
+    const intent = await asAdmin(request(app).post(`/admin-api/v1/discovery/candidates/${candidate.id}/review-intent`))
+      .send({ expected_revision: null, intent: { mode: 'image_only', target_beer_id: 101 } });
+    expect(intent.status).toBe(201);
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const before = await imageCount();
+    const failure = await runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()).catch((e) => e);
+    expect(failure).toMatchObject({ check: 'check4' });
+    expect(await imageCount()).toBe(before);
+    await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('refuses an import when its recorded review intent is no longer current', async () => {
+    const candidate = await takeCandidate();
+    await approveImageViaStub(candidate, `/img/stale-intent-${candidate.id}.png`);
+    const intent = await asAdmin(request(app).post(`/admin-api/v1/discovery/candidates/${candidate.id}/review-intent`))
+      .send({ expected_revision: null, intent: { mode: 'image_only', target_beer_id: 101 } });
+    expect(intent.status).toBe(201);
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const before = await imageCount();
+    // Simulate a privileged out-of-band revision to prove the executor
+    // refuses even when the selected status and manifest are unchanged.
+    await (owner as any).discovery_review_intents.create({ data: {
+      candidate_id: candidate.id, intent: { mode: 'image_only', target_beer_id: 102 },
+      previous_intent: { mode: 'image_only', target_beer_id: 101 },
+    } });
+    const failure = await runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()).catch((e) => e);
+    expect(failure).toMatchObject({ check: 'check2' });
+    expect(await imageCount()).toBe(before);
+    await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('continues to import an approved version 1 manifest under version 1 rules', async () => {
+    const candidate = await takeCandidate();
+    await owner.discovery_candidates.update({ where: { id: candidate.id }, data: { image_url: null } });
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    const row = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
+    const content = JSON.parse(JSON.stringify(row?.manifest));
+    content.schema = 'discovery-import-manifest/1';
+    for (const record of content.records) {
+      const staged = await owner.discovery_candidates.findUnique({ where: { id: record.candidate_id } });
+      record.payload_sha256 = payloadSha256(staged?.payload);
+      delete record.kind;
+      delete record.intent_revision_id;
+      delete record.target_beer_id;
+    }
+    const sha256 = manifestSha256(content);
+    await owner.discovery_import_manifests.update({ where: { id: built.id }, data: { manifest: content, sha256 } });
+    await approveManifest({ ...built, sha256 });
+    const report = await runImport(loader, { manifestId: built.id, expectedSha256: sha256 }, importDeps());
+    expect(report.beers_inserted).toBe(1);
+  });
+
+  it('refuses when an as-staged beer field changes after approval', async () => {
+    const candidate = await takeCandidate();
+    await owner.discovery_candidates.update({ where: { id: candidate.id }, data: { image_url: null } });
+    await driveToSelected(candidate);
+    const built = await buildManifest();
+    await approveManifest(built);
+    await owner.discovery_candidates.update({ where: { id: candidate.id }, data: { name: 'Changed after approval' } });
+    const before = await beerCount();
+    const failure = await runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()).catch((e) => e);
+    expect(failure).toMatchObject({ check: 'check2' });
+    expect(await beerCount()).toBe(before);
     await cleanupScenario(built.id, [candidate.id]);
   });
 

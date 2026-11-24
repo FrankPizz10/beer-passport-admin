@@ -12,11 +12,16 @@
 import * as crypto from 'crypto';
 import {
   buildManifestContent, canonicalManifestBytes, canonicalStringify,
-  evaluateEligibility, manifestIdFor, manifestSha256, payloadSha256,
+  evaluateEligibility, manifestIdFor, manifestSha256, payloadSha256, reviewPayloadSha256,
   CatalogFingerprint, ManifestRecord,
 } from './discoveryManifestCore';
 
 describe('canonical serialization', () => {
+  it('makes version 2 payload hashes incompatible with older executors', () => {
+    const payload = { name: 'Bud Light' };
+    expect(reviewPayloadSha256(payload)).not.toBe(payloadSha256(payload));
+    expect(reviewPayloadSha256(payload)).toMatch(/^[0-9a-f]{64}$/);
+  });
   it('sorts keys at every depth with no whitespace and one trailing LF', () => {
     const content = { c: null, b: { y: 'z', x: [1, 2] }, a: 1 };
     expect(canonicalStringify(content)).toBe('{"a":1,"b":{"x":[1,2],"y":"z"},"c":null}');
@@ -130,6 +135,22 @@ const baseInput = {
 };
 
 describe('eligibility evaluation', () => {
+  it('binds an explicit existing beer target and approved image to an image-only entry', () => {
+    const result = evaluateEligibility({
+      ...baseInput,
+      candidate: { ...baseCandidate, brewery_name: null, matched_beer_id: null, image_url: 'https://images.example/ale.png', image_decision: 'approved', image_decision_fetch_id: 51 },
+      reviewIntent: { id: 12, intent: { mode: 'image_only', target_beer_id: 42 } },
+      imageDecision: { id: 9, fetch_id: 51, image_ref: 'https://images.example/ale.png', image_sha256: 'f'.repeat(64) },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.record).toMatchObject({ kind: 'image_only', target_beer_id: 42, intent_revision_id: 12, image: { decision_id: 9 } });
+  });
+
+  it('refuses image-only entries without an approved image', () => {
+    const result = evaluateEligibility({ ...baseInput, reviewIntent: { id: 12, intent: { mode: 'image_only', target_beer_id: 42 } } });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reasons).toContain('approved_image_required');
+  });
   it('accepts a selected no-image candidate and snapshots the import payload', () => {
     const result = evaluateEligibility(baseInput);
     expect(result.ok).toBe(true);

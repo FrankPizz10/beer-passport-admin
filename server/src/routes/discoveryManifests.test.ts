@@ -122,6 +122,7 @@ const buildHarness = (opts: {
     [{ count: FINGERPRINT[table].count, md5: FINGERPRINT[table].md5 }];
 
   const readPrisma: any = {
+    discovery_review_intents: { findMany: async () => [] },
     discovery_batches: {
       findUnique: async ({ where }: any) => state.batches.find((b) => b.id === where.id) ?? null,
     },
