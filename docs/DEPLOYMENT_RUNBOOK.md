@@ -292,13 +292,55 @@ rows. The workflow adds a review queue with a human quality gate:
    deployments) or the full `readonly-role.sql` (fresh ones), then
    `server/db/approval-role.sql` with `-v approver_password=...` set
    out of band; run `server/db/verify-approval-role.sql` AS the
-   approver role and record the output.
-3. Set `DATABASE_URL_WRITE` on the API host to the approver role's
-   URL (secret handling as for the viewer URL), deploy the API.
+   approver role and record the output. The repeatable pre-deployment
+   verification for this step is `server/scripts/test-approval-role.sh`:
+   it stands up a disposable PostgreSQL instance, applies the
+   migration and both role scripts, runs both verify scripts as their
+   roles (viewer 13/13, approver all checks), and probes the
+   approver's grants directly; run it before this step and keep its
+   output with the deployment record.
+3. Set `DATABASE_URL_WRITE` in the API's env file on the host,
+   `/etc/beerpassport/secrets/admin-api.env`, to the approver role's
+   URL (secret handling as for the viewer URL), then deploy the API
+   by digest through the CI/CD pipeline (see `docs/ci-cd/RUNBOOK.md`);
+   there is no separate manual API deploy for this workflow.
 4. Deploy the client build (the Image Queue page needs no new client
-   configuration; it uses the same API base URL).
-5. Load candidates with the loader only against an approved target,
-   then review them in the queue.
+   configuration; it uses the same API base URL), but only after the
+   API compatibility probe passes: an unauthenticated GET
+   `/admin-api/v1/images/queue` against the deployed API must return
+   401. It returns 404 on the pre-workflow API, so a 404 means the new
+   API is not actually live yet; do not publish the client until the
+   probe returns 401.
+5. Load candidates only through the operator-reviewed procedure
+   below, then review them in the queue.
+
+### Operator-reviewed candidate load
+
+The loader is the only path that creates candidate rows, and it runs
+only under this procedure, against an approved target:
+
+1. Prepare `candidates.json` (format in the loader's header comment)
+   and record where it came from (the staged batch or source it was
+   prepared from).
+2. Run the loader with `--dry-run` on that exact file. The dry run
+   performs the full hosted-URL verification and dedupe
+   classification and prints the counts report (`inserted`,
+   `skipped_duplicate`, `invalid`, `not_image`, `unreachable`) while
+   inserting nothing.
+3. The operator reviews the printed report. Any surprise (an
+   unexpected duplicate count, `not_image` or `unreachable` rows the
+   batch did not predict, invalid rows) stops the load; fix the input
+   and repeat the dry run. Do not proceed on a report nobody has read.
+4. Record the approval explicitly (who approved, when, the input
+   file, and the dry-run counts) in the deployment record.
+5. Run the loader for real on the IDENTICAL input file. Changing the
+   file after the dry run invalidates the approval; start over at
+   step 2.
+6. Spot-check the queue: the pending count in the Image Queue (or
+   `SELECT count(*) FROM beverage_images WHERE status = 'pending'`
+   as the viewer) must match the real run's `inserted` count, plus
+   any candidates that were already pending. A mismatch stops further
+   loads until it is explained.
 
 ### Verification
 

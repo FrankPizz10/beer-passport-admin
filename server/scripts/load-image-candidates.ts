@@ -14,8 +14,7 @@
 // script is run by a human operator against an approved target only;
 // it is never run by the API and never on a schedule.
 //
-// Input: a JSON file (path = first CLI argument) holding an array of
-// candidates:
+// Input: a JSON file holding an array of candidates:
 //   {
 //     "beverage_id": 3951,                       // required, existing beer id
 //     "image_url": "https://.../direct.jpg",     // hosted candidate, OR
@@ -47,17 +46,27 @@
 //
 // Usage:
 //   DATABASE_URL_ADMIN_LOADER=postgresql://... \
-//     npx ts-node --transpile-only scripts/load-image-candidates.ts candidates.json
+//     npx ts-node --transpile-only scripts/load-image-candidates.ts [--dry-run] candidates.json
+//
+// --dry-run (accepted before or after the file argument) performs the
+// full fetch verification and dedupe classification and prints the
+// same counts report, but inserts NOTHING: every write goes through
+// the single guarded write helper in runLoader, which returns without
+// touching the database when dry-run is on. The operator-reviewed load
+// procedure in docs/DEPLOYMENT_RUNBOOK.md requires a reviewed dry run
+// on the identical input file before the real run.
 //
 // Prints a JSON summary: { total, inserted, skipped_duplicate, invalid,
 // not_image, unreachable } where not_image / unreachable count the
 // hosted candidates among the inserted rows (they are inserted as
 // pending so the audit trail shows why they cannot be approved; the
-// API refuses to approve them with 422).
+// API refuses to approve them with 422). In dry-run mode "inserted"
+// counts the rows that WOULD be inserted by a real run on the same
+// input against the same database state.
 import * as fs from 'fs';
 import { PrismaClient } from '@prisma/client';
 
-type Candidate = {
+export type Candidate = {
   beverage_id: number;
   image_url?: string;
   storage_key?: string;
@@ -68,16 +77,51 @@ type Candidate = {
   license_url?: string;
 };
 
-type CheckResult = {
+export type CheckResult = {
   status: 'image' | 'not_image' | 'unreachable';
   contentType: string | null;
+};
+
+export type CandidateInsert = {
+  beverage_id: number;
+  source_type: string;
+  source_url: string;
+  storage_key: string;
+  license_type: string;
+  attribution: string;
+  license_url: string;
+  status: string;
+  source_content_type: string | null;
+  source_checked_at: Date | null;
+  source_check_status: string;
+};
+
+export type LoaderSummary = {
+  total: number;
+  inserted: number;
+  skipped_duplicate: number;
+  invalid: number;
+  not_image: number;
+  unreachable: number;
+};
+
+// Everything runLoader needs from the outside world. Production wires
+// these to Prisma and the real URL check; tests wire mocks, so the
+// classification logic runs with no database and no network.
+export type LoaderDeps = {
+  findExisting: (
+    beverageId: number,
+    storageKey: string,
+  ) => Promise<{ id: number } | null>;
+  insertCandidate: (data: CandidateInsert) => Promise<void>;
+  checkImageUrl: (url: string) => Promise<CheckResult>;
 };
 
 const isHttpUrl = (value: unknown): value is string =>
   typeof value === 'string' &&
   (value.startsWith('https://') || value.startsWith('http://'));
 
-const checkImageUrl = async (url: string): Promise<CheckResult> => {
+export const checkImageUrl = async (url: string): Promise<CheckResult> => {
   const fetchFn = (globalThis as any).fetch as typeof fetch | undefined;
   if (!fetchFn) return { status: 'unreachable', contentType: null };
   try {
@@ -101,7 +145,7 @@ const checkImageUrl = async (url: string): Promise<CheckResult> => {
   }
 };
 
-const validate = (raw: any): Candidate | null => {
+export const validate = (raw: any): Candidate | null => {
   if (!raw || typeof raw !== 'object') return null;
   if (!Number.isInteger(raw.beverage_id) || raw.beverage_id < 1) return null;
   if (typeof raw.source_type !== 'string' || !raw.source_type) return null;
@@ -115,10 +159,81 @@ const validate = (raw: any): Candidate | null => {
   return raw as Candidate;
 };
 
+export const runLoader = async (
+  parsed: unknown[],
+  deps: LoaderDeps,
+  options: { dryRun?: boolean } = {},
+): Promise<LoaderSummary> => {
+  const dryRun = options.dryRun === true;
+  const summary: LoaderSummary = {
+    total: parsed.length,
+    inserted: 0,
+    skipped_duplicate: 0,
+    invalid: 0,
+    not_image: 0,
+    unreachable: 0,
+  };
+
+  // The ONLY write path in the loader. In dry-run mode it returns
+  // without touching the database, so a dry run provably inserts
+  // nothing while the classification and counts proceed identically.
+  const writeCandidate = async (data: CandidateInsert): Promise<void> => {
+    if (dryRun) return;
+    await deps.insertCandidate(data);
+  };
+
+  for (const raw of parsed) {
+    const candidate = validate(raw);
+    if (!candidate) {
+      summary.invalid += 1;
+      continue;
+    }
+    const storageKey = isHttpUrl(candidate.image_url)
+      ? (candidate.image_url as string)
+      : (candidate.storage_key as string);
+
+    const existing = await deps.findExisting(candidate.beverage_id, storageKey);
+    if (existing) {
+      summary.skipped_duplicate += 1;
+      continue;
+    }
+
+    let checkStatus: string = 'unchecked';
+    let contentType: string | null = null;
+    let checkedAt: Date | null = null;
+    if (isHttpUrl(candidate.image_url)) {
+      const check = await deps.checkImageUrl(candidate.image_url);
+      checkStatus = check.status;
+      contentType = check.contentType;
+      checkedAt = new Date();
+      if (check.status === 'not_image') summary.not_image += 1;
+      if (check.status === 'unreachable') summary.unreachable += 1;
+    }
+
+    await writeCandidate({
+      beverage_id: candidate.beverage_id,
+      source_type: candidate.source_type,
+      source_url: candidate.source_url,
+      storage_key: storageKey,
+      license_type: candidate.license_type || '',
+      attribution: candidate.attribution || '',
+      license_url: candidate.license_url || '',
+      status: 'pending',
+      source_content_type: contentType,
+      source_checked_at: checkedAt,
+      source_check_status: checkStatus,
+    });
+    summary.inserted += 1;
+  }
+  return summary;
+};
+
 const main = async () => {
-  const file = process.argv[2];
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+  const file = args.find((a) => a !== '--dry-run');
   if (!file) {
-    console.error('Usage: load-image-candidates.ts <candidates.json>');
+    console.error('Usage: load-image-candidates.ts [--dry-run] <candidates.json>');
     process.exit(2);
   }
   const loaderUrl = process.env.DATABASE_URL_ADMIN_LOADER || '';
@@ -133,67 +248,31 @@ const main = async () => {
   }
 
   const prisma = new PrismaClient({ datasources: { db: { url: loaderUrl } } });
-  const summary = {
-    total: parsed.length,
-    inserted: 0,
-    skipped_duplicate: 0,
-    invalid: 0,
-    not_image: 0,
-    unreachable: 0,
-  };
   try {
-    for (const raw of parsed) {
-      const candidate = validate(raw);
-      if (!candidate) {
-        summary.invalid += 1;
-        continue;
-      }
-      const storageKey = isHttpUrl(candidate.image_url)
-        ? (candidate.image_url as string)
-        : (candidate.storage_key as string);
-
-      const existing = await prisma.beverage_images.findFirst({
-        where: { beverage_id: candidate.beverage_id, storage_key: storageKey },
-        select: { id: true },
-      });
-      if (existing) {
-        summary.skipped_duplicate += 1;
-        continue;
-      }
-
-      let checkStatus: string = 'unchecked';
-      let contentType: string | null = null;
-      let checkedAt: Date | null = null;
-      if (isHttpUrl(candidate.image_url)) {
-        const check = await checkImageUrl(candidate.image_url);
-        checkStatus = check.status;
-        contentType = check.contentType;
-        checkedAt = new Date();
-        if (check.status === 'not_image') summary.not_image += 1;
-        if (check.status === 'unreachable') summary.unreachable += 1;
-      }
-
-      await prisma.beverage_images.create({
-        data: {
-          beverage_id: candidate.beverage_id,
-          source_type: candidate.source_type,
-          source_url: candidate.source_url,
-          storage_key: storageKey,
-          license_type: candidate.license_type || '',
-          attribution: candidate.attribution || '',
-          license_url: candidate.license_url || '',
-          status: 'pending',
-          source_content_type: contentType,
-          source_checked_at: checkedAt,
-          source_check_status: checkStatus,
+    const summary = await runLoader(
+      parsed,
+      {
+        findExisting: (beverageId, storageKey) =>
+          prisma.beverage_images.findFirst({
+            where: { beverage_id: beverageId, storage_key: storageKey },
+            select: { id: true },
+          }),
+        insertCandidate: async (data) => {
+          await prisma.beverage_images.create({ data });
         },
-      });
-      summary.inserted += 1;
+        checkImageUrl,
+      },
+      { dryRun },
+    );
+    if (dryRun) {
+      console.error('DRY RUN: no rows were inserted.');
     }
+    console.log(JSON.stringify(summary, null, 2));
   } finally {
     await prisma.$disconnect();
   }
-  console.log(JSON.stringify(summary, null, 2));
 };
 
-main().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
