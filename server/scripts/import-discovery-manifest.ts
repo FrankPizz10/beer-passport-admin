@@ -28,9 +28,19 @@
 // VALIDITY THROUGH THE WRITE: the import runs as ONE transaction at
 // REPEATABLE READ. It first takes a transaction-scoped advisory lock
 // on the fixed catalog-import key (a concurrent import waits, then
-// re-checks against the new baseline and aborts as stale), locks the
-// manifest's candidate rows SELECT ... FOR UPDATE, and runs all five
-// revalidation checks INSIDE the transaction, in order:
+// re-checks against the new baseline and aborts as stale), then takes
+// SHARE ROW EXCLUSIVE table locks on beers, breweries, and
+// beverage_images for the rest of the transaction: the advisory lock
+// alone only serializes imports against each other, while these
+// table locks also hold off NORMAL catalog writes (every INSERT,
+// UPDATE, or DELETE takes a conflicting ROW EXCLUSIVE lock), so no
+// catalog change can slip in between the fingerprint and collision
+// checks and the import's own writes. Plain reads are unaffected,
+// and a catalog write already in flight finishes before the lock is
+// granted, so the checks never run against a half-written catalog.
+// It then locks the manifest's candidate rows SELECT ... FOR UPDATE,
+// and runs all five revalidation checks INSIDE the transaction, in
+// order:
 // One abort shape deserves a note: under REPEATABLE READ, SELECT
 // ... FOR UPDATE on a candidate row that a concurrent import (or
 // decision write) already updated and committed raises a
@@ -122,6 +132,40 @@ export interface ImportDeps {
   fetchImage: (url: string) => Promise<FetchResult>;
 }
 
+const CATALOG_SEQUENCES: Array<{ table: string; sequence: string }> = [
+  { table: 'breweries', sequence: 'breweries_id_seq' },
+  { table: 'beers', sequence: 'beers_id_seq' },
+  { table: 'beverage_images', sequence: 'beverage_images_id_seq' },
+];
+
+// Align each catalog id sequence with its table's current maximum id
+// so the inserts below receive fresh ids above every existing row.
+// Two safety properties, both load-bearing:
+//   * NEVER BACKWARDS: the target is GREATEST(table max, the
+//     sequence's own last_value), so a sequence that is already ahead
+//     of the table (ids reserved by another tool, a restored dump,
+//     manual inserts with explicit ids) keeps its position instead
+//     of being rewound to the max, where a later nextval could hand
+//     out an id that something else already treats as taken.
+//   * FAILURE ABORTS: any alignment error (a missing sequence, a
+//     permissions failure) is rethrown as a refusal. It is never
+//     swallowed: an import that cannot prove its id space is aligned
+//     must not write catalog rows.
+export const alignCatalogSequences = async (tx: any): Promise<void> => {
+  for (const { table, sequence } of CATALOG_SEQUENCES) {
+    try {
+      await tx.$queryRawUnsafe(
+        `SELECT setval('${sequence}', GREATEST(COALESCE((SELECT MAX(id) FROM ${table}), 0), (SELECT last_value FROM ${sequence})), true) AS value`,
+      );
+    } catch (e) {
+      throw refused(
+        'sequence_alignment',
+        `could not align the ${table} id sequence (${sequence}) with the table maximum; the import aborted before writing catalog rows. Cause: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+};
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isSerializationFailure = (e: unknown): boolean => {
@@ -169,6 +213,17 @@ export const runImport = async (
         if (!locked) {
           throw refused('lock', 'could not acquire the catalog-import advisory lock after 5 minutes; another import may be stuck.');
         }
+
+        // Hold off normal catalog writes for the rest of the
+        // transaction (see the header): SHARE ROW EXCLUSIVE on the
+        // three fingerprint/collision tables conflicts with the ROW
+        // EXCLUSIVE lock every INSERT/UPDATE/DELETE takes, while
+        // plain SELECTs keep working and this transaction's own
+        // inserts are unaffected. Acquired after the advisory lock
+        // so concurrent imports keep a single lock order.
+        await tx.$executeRawUnsafe(
+          'LOCK TABLE beers, breweries, beverage_images IN SHARE ROW EXCLUSIVE MODE',
+        );
 
         const row = await tx.discovery_import_manifests.findUnique({
           where: { id: opts.manifestId },
@@ -407,11 +462,11 @@ export const runImport = async (
           throw new DryRunRollback();
         }
 
-        // Align the id sequences above the current maxima so new ids
-        // are assigned above the current max, in manifest order.
-        await tx.$queryRawUnsafe("SELECT setval('breweries_id_seq', (SELECT max(id) FROM breweries))").catch(() => undefined);
-        await tx.$queryRawUnsafe("SELECT setval('beers_id_seq', (SELECT max(id) FROM beers))").catch(() => undefined);
-        await tx.$queryRawUnsafe("SELECT setval('beverage_images_id_seq', (SELECT max(id) FROM beverage_images))").catch(() => undefined);
+        // Align the id sequences with the current table maxima so
+        // new ids are assigned above the current max, in manifest
+        // order. Never moves a sequence backwards, and any alignment
+        // failure aborts the import (see alignCatalogSequences).
+        await alignCatalogSequences(tx);
 
         const now = new Date();
         const createdBreweryId = new Map<string, number>();

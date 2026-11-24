@@ -15,7 +15,11 @@
 // disposable database and verifies the catalog writes. The negative
 // battery follows: draft refusal, fingerprint abort on a
 // count-preserving rename, decision-change abort, tampered-image
-// abort, concurrent imports, and --dry-run.
+// abort, concurrent imports, and --dry-run. Three import-safety
+// regressions close the suite: sequences already ahead of the table
+// maximum are never rewound, a sequence alignment failure aborts
+// before any write, and a normal catalog write attempted mid-import
+// is held off by the import's catalog table locks.
 //
 // Clients are constructed lazily inside beforeAll: a PrismaClient
 // built at describe-body level would throw on a missing URL even
@@ -508,5 +512,148 @@ run('discovery manifests + import executor against the disposable database', () 
     const after = await owner.discovery_candidates.findUnique({ where: { id: candidate.id } });
     expect(after?.review_status).toBe('selected');
     await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('regression: id sequences already ahead of the table maximum are never moved backwards', async () => {
+    const [candidate] = takeFromPool(1);
+    await driveToSelected(candidate);
+    await approveImageViaStub(candidate, `/img/seq-${candidate.id}.png`);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const maxBeer = (await owner.beers.aggregate({ _max: { id: true } }))._max.id ?? 0;
+    const maxBrewery = (await owner.breweries.aggregate({ _max: { id: true } }))._max.id ?? 0;
+    const maxImage = (await owner.beverage_images.aggregate({ _max: { id: true } }))._max.id ?? 0;
+    // Simulate ids reserved outside the tables (another tool, a
+    // restored dump, explicit-id inserts): every catalog sequence
+    // sits ahead of its table's maximum.
+    await owner.$queryRawUnsafe(`SELECT setval('beers_id_seq', ${maxBeer + 1000}, true)`);
+    await owner.$queryRawUnsafe(`SELECT setval('breweries_id_seq', ${maxBrewery + 500}, true)`);
+    await owner.$queryRawUnsafe(`SELECT setval('beverage_images_id_seq', ${maxImage + 500}, true)`);
+    const report = await runImport(
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+    );
+    expect(report.beers_inserted).toBe(1);
+    // The new ids come from the sequences, so they land ABOVE the
+    // ahead positions, not back at max + 1: alignment did not rewind.
+    expect(report.id_assignments[0].beer_id).toBeGreaterThan(maxBeer + 1000);
+    expect(report.id_assignments[0].image_id).not.toBeNull();
+    expect(report.id_assignments[0].image_id as number).toBeGreaterThan(maxImage + 500);
+    const beerSeq = await owner.$queryRawUnsafe<Array<{ v: number }>>(
+      'SELECT last_value::int AS v FROM beers_id_seq',
+    );
+    expect(beerSeq[0].v).toBeGreaterThanOrEqual(maxBeer + 1000);
+    const brewerySeq = await owner.$queryRawUnsafe<Array<{ v: number }>>(
+      'SELECT last_value::int AS v FROM breweries_id_seq',
+    );
+    expect(brewerySeq[0].v).toBeGreaterThanOrEqual(maxBrewery + 500);
+  });
+
+  it('regression: a sequence alignment failure aborts the import before any catalog write', async () => {
+    const [candidate] = takeFromPool(1);
+    await driveToSelected(candidate);
+    await approveImageViaStub(candidate, `/img/align-${candidate.id}.png`);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const beersBefore = await beerCount();
+    const breweriesBefore = await owner.breweries.count();
+    // Break the beers sequence's NAME: the alignment step resolves
+    // sequences by name, so its setval now has nothing to align and
+    // must fail loudly. (The column default references the sequence
+    // by OID, so inserts would still work if the failure were
+    // swallowed - which is exactly what must not happen.)
+    await owner.$executeRawUnsafe('ALTER SEQUENCE beers_id_seq RENAME TO beers_id_seq_broken');
+    try {
+      const failure = await runImport(
+        loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+      ).catch((e) => e);
+      expect(failure).toBeInstanceOf(ImportRefusedError);
+      expect(failure.check).toBe('sequence_alignment');
+      expect(failure.message).toContain('beers_id_seq');
+      expect(await beerCount()).toBe(beersBefore);
+      expect(await owner.breweries.count()).toBe(breweriesBefore);
+      const stored = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
+      expect(stored?.status).toBe('approved');
+    } finally {
+      await owner.$executeRawUnsafe('ALTER SEQUENCE beers_id_seq_broken RENAME TO beers_id_seq');
+    }
+    await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('regression: a normal catalog write cannot slip in during an import (it waits for the import transaction)', async () => {
+    let candidate: any = null;
+    try {
+      [candidate] = takeFromPool(1);
+    } catch {
+      candidate = null;
+    }
+    if (!candidate) {
+      // The shared pool cursor can run dry late in the suite (the
+      // positive scenario's no-image scan skips ahead past unused
+      // candidates). Fall back to any pool candidate that is still
+      // pending and untouched.
+      for (const c of pool) {
+        const fresh = await owner.discovery_candidates.findUnique({ where: { id: c.id } });
+        if (fresh?.review_status === 'pending') {
+          candidate = fresh;
+          break;
+        }
+      }
+    }
+    if (!candidate) throw new Error('no unused candidate available for the concurrency scenario');
+    await driveToSelected(candidate);
+    await approveImageViaStub(candidate, `/img/lock-${candidate.id}.png`);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const seedBrewery = await owner.breweries.findFirst({ where: { name: 'Seed Brewing Co' } });
+    if (!seedBrewery) throw new Error('seed brewery missing');
+    // Gate the import inside its transaction: the image re-fetch
+    // runs after all five checks, with the catalog table locks held,
+    // so once the gate trips the import is provably between its
+    // checks and its writes.
+    let fetchStarted!: () => void;
+    let releaseFetch!: () => void;
+    const fetchGate = new Promise<void>((resolve) => { fetchStarted = resolve; });
+    const fetchRelease = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    let firstFetch = true;
+    const gatedFetch = async (url: string) => {
+      if (firstFetch) {
+        firstFetch = false;
+        fetchStarted();
+        await fetchRelease;
+      }
+      return seamFetchImage(url);
+    };
+    const beersBefore = await beerCount();
+    const importPromise = runImport(
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: gatedFetch },
+    );
+    await fetchGate;
+    // A normal catalog write (a new beer under an existing brewery)
+    // must not complete while the import holds its locks: given a
+    // 1s lock timeout, the lock itself refuses it.
+    const writeAttempt = await owner.$transaction(async (txc) => {
+      await txc.$executeRawUnsafe("SET LOCAL lock_timeout = '1000ms'");
+      return txc.beers.create({
+        data: { name: 'Concurrent Write Attempt Ale', brewery_id: seedBrewery.id, descript: '' },
+      });
+    }).catch((e: any) => e);
+    expect(writeAttempt).toBeInstanceOf(Error);
+    expect(String(writeAttempt.message)).toMatch(/lock timeout|55P03/i);
+    expect(await owner.beers.findFirst({ where: { name: 'Concurrent Write Attempt Ale' } })).toBeNull();
+    releaseFetch();
+    const report = await importPromise;
+    expect(report.beers_inserted).toBe(1);
+    expect(await beerCount()).toBe(beersBefore + 1);
+    // Exactly one beer carries the imported candidate's name: the
+    // blocked write did not slip a duplicate in alongside the import.
+    const imported = await owner.beers.findMany({ where: { name: candidate.name } });
+    expect(imported).toHaveLength(1);
+    // After the import commits, the same write succeeds at once: it
+    // was the import's lock that held it, nothing else.
+    const landed = await owner.beers.create({
+      data: { name: 'Concurrent Write Attempt Ale', brewery_id: seedBrewery.id, descript: '' },
+    });
+    expect(landed.id).toBeGreaterThan(0);
+    await owner.beers.delete({ where: { id: landed.id } });
   });
 });
