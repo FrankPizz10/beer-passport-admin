@@ -21,9 +21,10 @@ import { getDiscoveryWritePrisma } from '../src/discoveryWriteDb';
 const run = process.env.RUN_DB_TESTS === '1' ? describe : describe.skip;
 
 run('discovery decisions against local database', () => {
-  const owner = new PrismaClient({
-    datasources: { db: { url: process.env.DISCOVERY_TEST_OWNER_URL as string } },
-  });
+  // Constructed lazily inside beforeAll: a PrismaClient built at
+  // describe-body level would throw on the missing owner URL even
+  // when the suite is skipped (RUN_DB_TESTS unset).
+  let owner: PrismaClient;
   let adminId = 0;
   let batchId = 0;
   let soloId = 0;
@@ -35,6 +36,9 @@ run('discovery decisions against local database', () => {
   const auth = (req: request.Test) => req.set('Authorization', 'Bearer <redacted>');
 
   beforeAll(async () => {
+    owner = new PrismaClient({
+      datasources: { db: { url: process.env.DISCOVERY_TEST_OWNER_URL as string } },
+    });
     const admin = await owner.users.findUnique({ where: { uid: 'integration-admin' } });
     if (!admin) throw new Error('seed user integration-admin missing (see test-discovery-roles.sh)');
     adminId = admin.id;
