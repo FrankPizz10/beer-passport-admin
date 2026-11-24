@@ -84,6 +84,26 @@
 // (the catalog schema has no dedicated provenance column; see the
 // runbook).
 //
+// IMAGE STORAGE: in the real write path (never in --dry-run), the
+// re-fetched, hash-verified bytes are uploaded to the private image
+// bucket BEFORE the beverage_images row is written, and the row's
+// storage_key is the returned content-addressed S3 key
+// (discovery/<2-char shard>/<sha256>, see
+// src/discoveryImageUpload.ts) - the bare key the API's presigned-GET
+// read path resolves. source_url keeps carrying the origin URL. The
+// upload runs under this process's OPERATOR identity, never the
+// API's GetObject-only identity. One ordering fact is unavoidable:
+// the S3 PUT is not part of the database transaction, so an abort
+// after a successful PUT (a later image failing, a commit failure)
+// leaves an orphan object. Content addressing makes that orphan
+// harmless: it holds exactly the verified bytes under their hash,
+// is referenced by no row, and a retry of the import PUTs the same
+// bytes to the same key. An upload failure after the uploader's
+// bounded retries aborts the import as IMPORT REFUSED
+// [image_upload] and the database transaction rolls back; a
+// manifest with images but no configured uploader refuses the same
+// way rather than storing a source URL as storage_key.
+//
 // --dry-run runs the lock, all five checks, the image re-fetch and
 // hash verification, and the full payload validation, then rolls
 // back and prints the would-be report (id assignments are the ids
@@ -93,7 +113,8 @@
 // "IMPORT REFUSED [<check>]: <message>" on stderr and exit 1;
 // argument and configuration refusals exit 2.
 import { PrismaClient } from '@prisma/client';
-import { fetchImageRestricted, FetchResult } from '../src/discoveryImageFetch';
+import { fetchImageRestricted, FetchedImage, FetchResult } from '../src/discoveryImageFetch';
+import { getDefaultDiscoveryUploader, UploadImageFn } from '../src/discoveryImageUpload';
 import {
   CATALOG_IMPORT_ADVISORY_LOCK_KEY, ManifestContent, ManifestRecord,
   computeCatalogFingerprint, fingerprintDiff, fingerprintsEqual,
@@ -130,6 +151,16 @@ export interface ImportReport {
 
 export interface ImportDeps {
   fetchImage: (url: string) => Promise<FetchResult>;
+  // Uploads hash-verified image bytes to the private image bucket and
+  // resolves to the object key stored in beverage_images.storage_key.
+  // Optional in the type so refusal-path and dry-run callers need not
+  // provide one, but a REAL import of a manifest that carries images
+  // refuses (image_upload) when it is absent: silently storing the
+  // source URL instead is exactly the gap this closes. The CLI wires
+  // the real S3 uploader from the operator environment; tests inject
+  // a stub. Uploads run under the OPERATOR identity of this process,
+  // never under the API's GetObject-only signing identity.
+  uploadImage?: UploadImageFn;
 }
 
 const CATALOG_SEQUENCES: Array<{ table: string; sequence: string }> = [
@@ -400,8 +431,10 @@ export const runImport = async (
 
         // Image re-fetch + re-hash (the write phase's binding proof):
         // the bytes that would be published must still hash to the
-        // approved hash. A mismatch aborts; nothing degrades.
-        const fetchedByCandidate = new Map<number, { contentType: string }>();
+        // approved hash. A mismatch aborts; nothing degrades. The
+        // full fetched image (bytes included) is kept: the real
+        // write path uploads exactly these verified bytes to S3.
+        const fetchedByCandidate = new Map<number, FetchedImage>();
         for (const record of records) {
           if (!record.image) continue;
           const result = await deps.fetchImage(record.image.ref);
@@ -411,7 +444,7 @@ export const runImport = async (
           if (result.image.sha256 !== record.image.sha256) {
             throw refused('image_refetch', `candidate ${record.candidate_id} (${record.candidate_key}) image bytes changed after approval (manifest ${record.image.sha256}, re-fetched ${result.image.sha256}); import aborted. The Phase 4 decision no longer binds.`);
           }
-          fetchedByCandidate.set(record.candidate_id, { contentType: result.image.contentType });
+          fetchedByCandidate.set(record.candidate_id, result.image);
         }
 
         // Payload plan (shared by the real write and the dry run).
@@ -462,6 +495,43 @@ export const runImport = async (
           throw new DryRunRollback();
         }
 
+        // Upload the verified image bytes to the private bucket
+        // (real write path only: the dry-run branch above has
+        // already rolled back, so a dry run performs no upload).
+        // Uploads complete before any catalog row is written, so an
+        // upload failure aborts with nothing in the database to
+        // unwind; the transaction still rolls back as a whole. See
+        // the header for the orphan-object semantics of a PUT that
+        // succeeded before a later abort.
+        const imageRecords = records.filter((r) => r.image);
+        if (imageRecords.length > 0 && typeof deps.uploadImage !== 'function') {
+          throw refused(
+            'image_upload',
+            `manifest ${row.id} carries ${imageRecords.length} approved image(s) but no image uploader is configured for this process (the operator environment must set ADMIN_IMAGE_BUCKET and ADMIN_IMAGE_REGION or AWS_REGION so the verified bytes can be uploaded to the private image bucket). Refusing to import: storing a source URL as storage_key would leave the imported images unresolvable through the presigned read path.`,
+          );
+        }
+        const storageKeyByCandidate = new Map<number, string>();
+        for (const record of imageRecords) {
+          const fetched = fetchedByCandidate.get(record.candidate_id) as FetchedImage;
+          let key: string;
+          try {
+            key = await (deps.uploadImage as UploadImageFn)({
+              bytes: fetched.bytes,
+              sha256: fetched.sha256,
+              contentType: fetched.contentType,
+            });
+          } catch (e) {
+            throw refused(
+              'image_upload',
+              `candidate ${record.candidate_id} (${record.candidate_key}) image upload failed (${e instanceof Error ? e.message : String(e)}); import aborted and the database transaction rolls back. Any object already PUT by this import is a harmless content-addressed orphan (see the header note).`,
+            );
+          }
+          if (!key || typeof key !== 'string') {
+            throw refused('image_upload', `candidate ${record.candidate_id} (${record.candidate_key}) image upload returned no object key; import aborted.`);
+          }
+          storageKeyByCandidate.set(record.candidate_id, key);
+        }
+
         // Align the id sequences with the current table maxima so
         // new ids are assigned above the current max, in manifest
         // order. Never moves a sequence backwards, and any alignment
@@ -510,7 +580,7 @@ export const runImport = async (
                 beverage_id: beer.id,
                 source_type: decision?.image_source ?? candidate.source ?? '',
                 source_url: candidate.image_page_url ?? candidate.source_url ?? '',
-                storage_key: record.image.ref,
+                storage_key: storageKeyByCandidate.get(record.candidate_id) as string,
                 license_type: decision?.image_license ?? '',
                 attribution: [baseAttribution, provenance].filter(Boolean).join(' | ').slice(0, 512),
                 license_url: typeof payload.license_url === 'string' ? payload.license_url : '',
@@ -599,10 +669,17 @@ const main = async () => {
   }
   const prisma = new PrismaClient({ datasources: { db: { url: loaderUrl } } });
   try {
+    // The S3 uploader is built from the operator environment (the
+    // same ADMIN_IMAGE_BUCKET / ADMIN_IMAGE_REGION / AWS_REGION
+    // names the API's presigned read path uses, but resolved under
+    // THIS process's operator identity, which is the one that must
+    // hold the PutObject policy). Null when unconfigured: runImport
+    // then refuses only if the manifest actually carries images.
+    const uploadImage = getDefaultDiscoveryUploader();
     const report = await runImport(
       prisma,
       { manifestId, expectedSha256, dryRun: args.includes('--dry-run') },
-      { fetchImage: fetchImageRestricted },
+      { fetchImage: fetchImageRestricted, uploadImage: uploadImage ?? undefined },
     );
     console.log(JSON.stringify(report, null, 2));
   } catch (e) {
