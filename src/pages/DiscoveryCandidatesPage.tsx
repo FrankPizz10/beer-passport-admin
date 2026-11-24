@@ -5,6 +5,7 @@ import { useApiData } from "../api/useApiData";
 import { DiscoveryCandidate, ListResponse } from "../api/types";
 import { DataTable } from "../components/DataTable";
 import Pagination from "../components/Pagination";
+import StatusChip from "../components/StatusChip";
 import { ErrorState } from "../components/States";
 import { fmtVal } from "../components/helpers";
 import { useListControls } from "../components/useListControls";
@@ -111,8 +112,8 @@ const DiscoveryCandidatesPage: React.FC = () => {
           { key: "abv", label: "ABV", sortable: true, render: (r) => r.abv ?? "None" },
           { key: "origin_bucket", label: "Origin", render: (r) => fmtVal(r.origin_bucket) },
           { key: "image_status_normalized", label: "Image Status", render: (r) => fmtVal(r.image_status_normalized) },
-          { key: "hold_reason", label: "Hold Reason", render: (r) => fmtVal(r.hold_reason) },
-          { key: "review_status", label: "Review Status", render: (r) => r.review_status },
+          { key: "hold_reason", label: "Hold Reason", render: (r) => r.hold_reason ? <span className="status-chip status-chip--neutral">{r.hold_reason}</span> : fmtVal(r.hold_reason) },
+          { key: "review_status", label: "Review Status", render: (r) => <StatusChip status={r.review_status} /> },
         ]}
       />
       {data && (
