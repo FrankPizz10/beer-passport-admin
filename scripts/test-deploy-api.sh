@@ -5,6 +5,9 @@ script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy-api.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
+mkdir -p "$tmp/discovery-images"
+export BP_DISCOVERY_STORE_HOST="$tmp/discovery-images"
+
 cat > "$tmp/bin/docker" <<'MOCK'
 #!/usr/bin/env bash
 set -eu
@@ -14,9 +17,12 @@ case "$1 ${2:-}" in
   "pull "*) echo pull >> "$MOCK_STATE/order" 2>/dev/null || true; exit 0;;
   "stop "*) exit 0;;
   "rename "*) if [ "$2" = beerpassport-admin-api ]; then mv "$MOCK_STATE/main" "$MOCK_STATE/rollback"; else mv "$MOCK_STATE/rollback" "$MOCK_STATE/main"; fi;;
-  "run -d") [ "$MOCK_FAIL" != run ] || exit 1; touch "$MOCK_STATE/main" "$MOCK_STATE/new";;
+  "run -d")
+    [[ " $* " == *" --mount type=bind,source=$BP_DISCOVERY_STORE_HOST,target=/var/lib/beerpassport-admin/discovery-images "* ]] || exit 2
+    [ "$MOCK_FAIL" != run ] || exit 1; touch "$MOCK_STATE/main" "$MOCK_STATE/new";;
   "network connect") [ "$MOCK_FAIL" != network ];;
-  "exec "*) [ "$MOCK_FAIL" != database ];;
+  "exec "*)
+    if [[ "$*" == *'accessSync'* ]]; then [ "$MOCK_FAIL" != store ]; else [ "$MOCK_FAIL" != database ]; fi;;
   "rm -f") rm -f "$MOCK_STATE/main" "$MOCK_STATE/new";;
   "rm "*) rm -f "$MOCK_STATE/rollback";;
   "start "*) touch "$MOCK_STATE/restored";;
@@ -32,7 +38,7 @@ MOCK
 printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/sleep"
 printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/flock"
 chmod +x "$tmp/bin/"*
-for failure in run network health database; do
+for failure in run network health store database; do
   state="$tmp/$failure"
   mkdir -p "$state"
   touch "$state/main" "$state/env"

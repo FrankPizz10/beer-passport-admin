@@ -46,6 +46,8 @@ CONTAINER_NAME="beerpassport-admin-api"
 ROLLBACK_CONTAINER_NAME="beerpassport-admin-api-rollback"
 BP_ADMIN_HOME="${BP_ADMIN_HOME:-/opt/beerpassport-admin}"
 ENV_FILE="${BP_ADMIN_ENV_FILE:-/etc/beerpassport/secrets/admin-api.env}"
+DISCOVERY_STORE_HOST="${BP_DISCOVERY_STORE_HOST:-/var/lib/beerpassport-admin/discovery-images}"
+DISCOVERY_STORE_CONTAINER="/var/lib/beerpassport-admin/discovery-images"
 PREVIOUS_FILE="${BP_ADMIN_HOME}/previous-digest"
 CURRENT_FILE="${BP_ADMIN_HOME}/current-digest"
 HEALTH_URL="http://127.0.0.1:4100/admin-api/v1/health"
@@ -70,6 +72,7 @@ NEW_DIGEST="${NEW_REF##*@}"
 command -v docker >/dev/null 2>&1 || fail "docker is not installed on this box"
 command -v curl >/dev/null 2>&1 || fail "curl is not installed on this box"
 [ -f "$ENV_FILE" ] || fail "env file not found: ${ENV_FILE} (create it on the box; its contents are never printed by this script)"
+[ -d "$DISCOVERY_STORE_HOST" ] || fail "discovery image store directory not found: ${DISCOVERY_STORE_HOST}"
 mkdir -p "$BP_ADMIN_HOME"
 command -v flock >/dev/null 2>&1 || fail "flock is required to serialize deployments"
 exec 9>"${BP_ADMIN_HOME}/deploy.lock"
@@ -143,6 +146,7 @@ start_container() {
     --name "$CONTAINER_NAME" \
     --restart unless-stopped \
     --env-file "$ENV_FILE" \
+    --mount "type=bind,source=$DISCOVERY_STORE_HOST,target=$DISCOVERY_STORE_CONTAINER" \
     -p 127.0.0.1:4100:4100 \
     --memory 288m \
     "$1" >/dev/null
@@ -161,7 +165,7 @@ wait_for_health() {
 }
 
 echo "Starting ${CONTAINER_NAME} from ${NEW_DIGEST} ..."
-if ! start_container "$NEW_REF" || ! docker network connect beerpassport-backend "$CONTAINER_NAME" || ! wait_for_health "$HEALTH_TRIES" || ! docker exec "$CONTAINER_NAME" node -e 'const {PrismaClient}=require("@prisma/client"); const p=new PrismaClient(); p.$queryRaw`SELECT 1 FROM beers LIMIT 1`.then(() => p.$disconnect()).catch(async e => { console.error(e.message); await p.$disconnect(); process.exitCode=1; });'; then
+if ! start_container "$NEW_REF" || ! docker network connect beerpassport-backend "$CONTAINER_NAME" || ! wait_for_health "$HEALTH_TRIES" || ! docker exec "$CONTAINER_NAME" node -e 'const fs=require("fs"); const p=process.env.DISCOVERY_IMAGE_STORE; if(p){ if(p!=="/var/lib/beerpassport-admin/discovery-images") throw new Error("DISCOVERY_IMAGE_STORE does not match the persistent mount"); fs.accessSync(p,fs.constants.R_OK|fs.constants.W_OK|fs.constants.X_OK); }' || ! docker exec "$CONTAINER_NAME" node -e 'const {PrismaClient}=require("@prisma/client"); const p=new PrismaClient(); p.$queryRaw`SELECT 1 FROM beers LIMIT 1`.then(() => p.$disconnect()).catch(async e => { console.error(e.message); await p.$disconnect(); process.exitCode=1; });'; then
   echo "ERROR: new container did not become healthy after $((HEALTH_TRIES * HEALTH_INTERVAL_SECONDS))s." >&2
   echo "----- last logs of the failed container -----" >&2
   docker logs --tail 100 "$CONTAINER_NAME" 2>&1 || true

@@ -309,7 +309,13 @@ content-addressed directory whose root is the API env var
 `<root>/<first 2 chars of sha256>/<sha256>`; identical bytes are
 stored once no matter how many fetches return them. Suggested host
 path: `/var/lib/beerpassport-admin/discovery-images`, owned by the
-API's service user, mode 750, on the API host's local disk. Sizing:
+container's `node` user (numeric UID 1000), mode 750, on the API host's
+local disk. Create this directory before deploying; `deploy-api.sh`
+requires it and bind-mounts it at the same path in the container.
+Set `DISCOVERY_IMAGE_STORE=/var/lib/beerpassport-admin/discovery-images`
+in the API env file. The mount survives container replacement. Back up
+this directory: reviewed image decisions depend on these exact bytes.
+Unsetting the env variable remains the image-review kill switch. Sizing:
 bytes are stored only for candidates a reviewer actually fetches
 (reviewed candidates only, never the whole staged pool); at the
 10 MB per-image cap, even 1,000 reviewed candidates stay under
