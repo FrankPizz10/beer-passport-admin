@@ -26,6 +26,14 @@ import DiscoveryExistingBeerPanel from "../components/DiscoveryExistingBeerPanel
 const shortSha = (sha: string | null): string =>
   sha ? `${sha.slice(0, 12)}…` : "none";
 
+// The server refuses image fetches when its image store is not
+// configured; the refusal names the setting (DISCOVERY_IMAGE_STORE
+// is unset). That is an administrator configuration problem, not a
+// reviewer error, so the panel renders a dedicated unavailable
+// state for it instead of a bare error line.
+export const isImageStoreUnsetError = (message: string | null): boolean =>
+  !!message && message.includes("DISCOVERY_IMAGE_STORE");
+
 const DiscoveryImageReviewPanel: React.FC<{
   candidate: DiscoveryCandidateDetail;
   onDecisionRecorded?: () => void;
@@ -61,6 +69,7 @@ const DiscoveryImageReviewPanel: React.FC<{
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [storeUnsetError, setStoreUnsetError] = useState<string | null>(null);
 
   const successfulFetches = fetches.filter((f) => f.outcome === "success");
   const latestSuccessful = successfulFetches.length > 0 ? successfulFetches[0] : null;
@@ -92,9 +101,15 @@ const DiscoveryImageReviewPanel: React.FC<{
         })
         .catch((e) => {
           if (!revoked) {
-            setPreviewError(
-              e instanceof ApiError ? e.message : "The preview could not be loaded."
-            );
+            const message =
+              e instanceof ApiError
+                ? e.message
+                : "The preview could not be loaded.";
+            if (isImageStoreUnsetError(message)) {
+              setStoreUnsetError(message);
+            } else {
+              setPreviewError(message);
+            }
           }
         });
     }
@@ -115,12 +130,19 @@ const DiscoveryImageReviewPanel: React.FC<{
         `/discovery/candidates/${candidateId}/image-fetches`,
         {}
       );
+      setStoreUnsetError(null);
       setSelectedFetchId(created.id);
       setTick((t) => t + 1);
     } catch (e) {
-      setActionError(
-        e instanceof ApiError ? e.message : "The image fetch could not be completed."
-      );
+      const message =
+        e instanceof ApiError
+          ? e.message
+          : "The image fetch could not be completed.";
+      if (isImageStoreUnsetError(message)) {
+        setStoreUnsetError(message);
+      } else {
+        setActionError(message);
+      }
     } finally {
       setBusy(false);
     }
@@ -167,7 +189,6 @@ const DiscoveryImageReviewPanel: React.FC<{
 
   return (
     <div className="image-review-panel">
-      <h2>Image Review</h2>
       <div className="detail-grid">
         <div>
           <span className="field-label">Staged Image URL (provenance)</span>
@@ -204,6 +225,30 @@ const DiscoveryImageReviewPanel: React.FC<{
       </div>
       {!candidate.image_url && (
         <p>This candidate has no staged image URL, so there is nothing to fetch.</p>
+      )}
+
+      {storeUnsetError && (
+        <div className="callout store-unavailable" role="alert">
+          <h3>Image preview unavailable: the server image store is not configured</h3>
+          <p>
+            The server refused the fetch: <code>{storeUnsetError}</code>
+          </p>
+          <p>
+            Fetching stores the image bytes on the server so the
+            preview shows exactly the bytes a decision would bind to.
+            The server-side image store (the{" "}
+            <code>DISCOVERY_IMAGE_STORE</code> setting) is not
+            configured, so no preview can be fetched right now. An
+            administrator must configure the store on the server;
+            there is nothing a reviewer can fix here, and you should
+            not fetch or upload the origin URL yourself.
+          </p>
+          <p>
+            The staged provenance above and any saved review intent
+            are unchanged. Image approve/reject stays disabled until
+            a stored preview exists.
+          </p>
+        </div>
       )}
 
       {fetches.length > 0 && (

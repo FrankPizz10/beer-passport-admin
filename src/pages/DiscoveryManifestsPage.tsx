@@ -5,6 +5,7 @@ import { useApiData } from "../api/useApiData";
 import { DiscoveryManifest, ListResponse } from "../api/types";
 import { EmptyState, ErrorState, Loading } from "../components/States";
 import { fmtDate, fmtVal } from "../components/helpers";
+import StatusChip from "../components/StatusChip";
 
 // Discovery import manifests (Phase 5): immutable, hash-bound import
 // packages built from a batch's selected candidates. Approval is
@@ -63,7 +64,7 @@ const DiscoveryManifestsPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="field-label">Status</span>
-                  {manifest.status}
+                  <StatusChip status={manifest.status} />
                 </div>
                 <div>
                   <span className="field-label">SHA-256</span>
