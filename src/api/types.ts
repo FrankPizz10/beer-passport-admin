@@ -324,3 +324,105 @@ export interface ApiKey {
   last_used_at: string | null;
   last_mod: string;
 }
+
+// --- Discovery staging hub (Phase 2, read-only) ---
+
+// Breakdown maps of GET /admin-api/v1/discovery/batches: each key is a
+// bucket/status value, each value the number of candidates in it.
+export interface DiscoveryBatchCounts {
+  by_origin_bucket: Record<string, number>;
+  by_image_status: Record<string, number>;
+  by_hold_reason: Record<string, number>;
+  by_review_status: Record<string, number>;
+}
+
+export interface DiscoveryReviewProgress {
+  total: number;
+  decided: number;
+  pending: number;
+  percent_reviewed: number;
+}
+
+// One row of GET /admin-api/v1/discovery/batches.
+export interface DiscoveryBatch {
+  id: number;
+  slug: string;
+  title: string | null;
+  source: string;
+  source_summary: string | null;
+  record_count: number;
+  status: string;
+  bundle_sha256: string;
+  ingested_at: string;
+  counts: DiscoveryBatchCounts;
+  review_progress: DiscoveryReviewProgress;
+}
+
+// One row of GET /admin-api/v1/discovery/batches/:id/candidates.
+export interface DiscoveryCandidate {
+  id: number;
+  batch_id: number;
+  candidate_key: string;
+  name: string;
+  brewery_name: string | null;
+  style: string | null;
+  abv: number | null;
+  barcode: string | null;
+  source: string;
+  origin_bucket: string | null;
+  image_status: string | null;
+  image_status_normalized: string | null;
+  image_verified: boolean | null;
+  hold_reason: string | null;
+  review_status: string;
+  dedupe_outcome: string;
+  matched_beer_id: number | null;
+}
+
+export interface DiscoveryOriginEvidence {
+  signal: string;
+  value: string;
+}
+
+// One duplicate-pair row on a candidate detail: candidate_id is the
+// candidate the detail page is for, candidate_id_b the other side
+// (null when the pair points at an external record instead, named by
+// external_ref). rival is the resolved other candidate when present.
+export interface DiscoveryPair {
+  id: number;
+  candidate_id: number;
+  candidate_id_b: number | null;
+  external_ref: string | null;
+  comparison: string | null;
+  method: string | null;
+  score: number | null;
+  status: string;
+  rival: { id: number; name: string; brewery_name: string | null } | null;
+}
+
+// Response of GET /admin-api/v1/discovery/candidates/:id: the list-row
+// fields plus provenance, image, and review detail, the owning batch
+// ref, and the candidate's duplicate pairs.
+export interface DiscoveryCandidateDetail extends DiscoveryCandidate {
+  ibu: number | null;
+  description: string | null;
+  source_record_id: string;
+  source_url: string | null;
+  retrieved_at: string | null;
+  tier: string | null;
+  origin_evidence: DiscoveryOriginEvidence[] | null;
+  image_url: string | null;
+  image_source: string | null;
+  image_tier: string | null;
+  image_flag_reason: string | null;
+  image_license: string | null;
+  image_page_url: string | null;
+  image_width: number | null;
+  image_height: number | null;
+  hold_note: string | null;
+  duplicate_of_candidate_id: number | null;
+  created_at: string;
+  updated_at: string;
+  batch: { id: number; slug: string; title: string | null };
+  pairs: DiscoveryPair[];
+}

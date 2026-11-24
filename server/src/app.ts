@@ -15,6 +15,7 @@ import { createUsersRouter } from './routes/users';
 import { createAdminRouter } from './routes/admin';
 import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
+import { createDiscoveryRouter } from './routes/discovery';
 import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
@@ -73,6 +74,7 @@ export const createApp = (deps: AppDeps = {}) => {
   api.use(createAdminRouter(prisma, deps.firebaseVerifier));
   api.use(createImagesRouter(prisma, presignGetUrl));
   api.use(createImageApprovalsRouter(prisma, writePrisma));
+  api.use(createDiscoveryRouter(prisma));
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {

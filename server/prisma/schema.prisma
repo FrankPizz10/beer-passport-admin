@@ -75,6 +75,7 @@ model beers {
   beverage_images  beverage_images[]
   collection_beers collection_beers[]
   user_beers       user_beers[]
+  discovery_matches discovery_candidates[] @relation("discovery_matched_beer")
 
   @@unique([brewery_id, name])
   @@index([brewery_id], map: "fk_beers_brewery_id_idx")
@@ -134,6 +135,110 @@ model image_review_events {
   admin_user        users?          @relation("image_review_events_admin_user", fields: [admin_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_image_review_events_admin_user_id")
 
   @@index([beverage_image_id], map: "image_review_events_beverage_image_id_idx")
+}
+
+// Catalog discovery hub staging (migration 002 in server/db/migrations;
+// hub decision 006, issues/001). Fully separate from the catalog tables:
+// candidates stay staged until a separately approved import. Image
+// statuses are preserved exactly as staged and never promoted.
+// Canonical change lives in beer-passport-server; see
+// server/db/migrations/002-discovery-staging.sql.
+model discovery_batches {
+  id                Int      @id @default(autoincrement())
+  slug              String   @unique @db.VarChar(120)
+  title             String?  @db.VarChar(255)
+  source            String   @db.VarChar(120)
+  source_summary    String?  @db.Text
+  manifest          Json
+  bundle_sha256     String   @unique @db.VarChar(64)
+  candidates_sha256 String   @db.VarChar(64)
+  record_count      Int
+  status            String   @default("staged") @db.VarChar(20)
+  ingested_by       String?  @db.VarChar(120)
+  ingested_at       DateTime @default(now()) @db.Timestamp(0)
+  candidates        discovery_candidates[]
+  pairs             discovery_candidate_pairs[]
+}
+
+model discovery_candidates {
+  id                        Int       @id @default(autoincrement())
+  batch_id                  Int
+  candidate_key             String    @db.VarChar(320)
+  payload                   Json
+  name                      String    @db.VarChar(600)
+  brewery_name              String?   @db.VarChar(600)
+  style                     String?   @db.VarChar(255)
+  abv                       Float?
+  ibu                       Float?
+  description               String?   @db.Text
+  barcode                   String?   @db.VarChar(64)
+  source                    String    @db.VarChar(120)
+  source_record_id          String    @db.VarChar(320)
+  source_url                String?   @db.Text
+  retrieved_at              DateTime? @db.Timestamp(0)
+  tier                      String?   @db.VarChar(20)
+  origin_bucket             String?   @db.VarChar(30)
+  origin_evidence           Json?
+  image_url                 String?   @db.Text
+  image_source              String?   @db.VarChar(120)
+  image_tier                String?   @db.VarChar(20)
+  image_status              String?   @db.VarChar(80)
+  image_status_normalized   String?   @db.VarChar(30)
+  image_verified            Boolean?
+  image_flag_reason         String?   @db.Text
+  image_license             String?   @db.VarChar(255)
+  image_page_url            String?   @db.Text
+  image_width               Int?
+  image_height              Int?
+  review_status             String    @default("pending") @db.VarChar(20)
+  hold_reason               String?   @db.VarChar(40)
+  hold_note                 String?   @db.Text
+  dedupe_outcome            String    @default("not_checked") @db.VarChar(30)
+  matched_beer_id           Int?
+  duplicate_of_candidate_id Int?
+  normalized_name           String    @db.VarChar(600)
+  normalized_brewery        String?   @db.VarChar(600)
+  created_at                DateTime  @default(now()) @db.Timestamp(0)
+  updated_at                DateTime  @default(now()) @db.Timestamp(0)
+  batch                     discovery_batches @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_candidates_batch_id")
+  matched_beer              beers?    @relation("discovery_matched_beer", fields: [matched_beer_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_candidates_matched_beer_id")
+  duplicate_of              discovery_candidates?  @relation("discovery_duplicate_of", fields: [duplicate_of_candidate_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_candidates_duplicate_of")
+  duplicates                discovery_candidates[] @relation("discovery_duplicate_of")
+  pairs_as_candidate        discovery_candidate_pairs[] @relation("discovery_pairs_candidate")
+  pairs_as_rival            discovery_candidate_pairs[] @relation("discovery_pairs_rival")
+
+  @@unique([batch_id, candidate_key], map: "discovery_candidates_batch_key")
+  @@index([batch_id], map: "discovery_candidates_batch_id_idx")
+  @@index([origin_bucket], map: "discovery_candidates_origin_bucket_idx")
+  @@index([hold_reason], map: "discovery_candidates_hold_reason_idx")
+  @@index([review_status], map: "discovery_candidates_review_status_idx")
+  @@index([barcode], map: "discovery_candidates_barcode_idx")
+  @@index([normalized_name], map: "discovery_candidates_normalized_name_idx")
+  @@index([image_status_normalized], map: "discovery_candidates_image_status_normalized_idx")
+  @@index([source], map: "discovery_candidates_source_idx")
+}
+
+model discovery_candidate_pairs {
+  id             Int       @id @default(autoincrement())
+  batch_id       Int
+  candidate_id   Int
+  candidate_id_b Int?
+  external_ref   String?   @db.VarChar(320)
+  comparison     String?   @db.VarChar(120)
+  method         String?   @db.VarChar(40)
+  score          Float?
+  status         String    @default("pending") @db.VarChar(20)
+  decided_by     Int?
+  decided_at     DateTime? @db.Timestamp(0)
+  created_at     DateTime  @default(now()) @db.Timestamp(0)
+  batch          discovery_batches    @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_batch_id")
+  candidate      discovery_candidates @relation("discovery_pairs_candidate", fields: [candidate_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_candidate_id")
+  rival          discovery_candidates? @relation("discovery_pairs_rival", fields: [candidate_id_b], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_candidate_id_b")
+  decider        users?               @relation("discovery_pairs_decided_by", fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_decided_by")
+
+  @@index([batch_id], map: "discovery_candidate_pairs_batch_id_idx")
+  @@index([candidate_id], map: "discovery_candidate_pairs_candidate_id_idx")
+  @@index([status], map: "discovery_candidate_pairs_status_idx")
 }
 
 model breweries {
@@ -217,6 +322,7 @@ model users {
   notifications                 notifications[]
   beverage_images_reviewed      beverage_images[]   @relation("beverage_images_reviewed_by")
   image_review_events           image_review_events[] @relation("image_review_events_admin_user")
+  discovery_pairs_decided       discovery_candidate_pairs[] @relation("discovery_pairs_decided_by")
 }
 
 model collections {
