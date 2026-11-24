@@ -29,7 +29,10 @@ const shortSha = (sha: string | null): string =>
 const DiscoveryImageReviewPanel: React.FC<{
   candidate: DiscoveryCandidateDetail;
   onDecisionRecorded?: () => void;
-}> = ({ candidate, onDecisionRecorded }) => {
+  // Bumped by the candidate page after a review intent is saved, so
+  // the existing-beer panel re-reads the saved intent.
+  intentRefreshKey?: number;
+}> = ({ candidate, onDecisionRecorded, intentRefreshKey = 0 }) => {
   const candidateId = candidate.id;
   const [tick, setTick] = useState(0);
   const { data: fetchData } = useApiData(
@@ -185,7 +188,10 @@ const DiscoveryImageReviewPanel: React.FC<{
         </div>
       </div>
 
-      <DiscoveryExistingBeerPanel candidate={candidate} />
+      <DiscoveryExistingBeerPanel
+        candidate={candidate}
+        intentRefreshKey={intentRefreshKey}
+      />
 
       <div className="decision-actions">
         <button type="button" disabled={busy || !candidate.image_url} onClick={doFetch}>

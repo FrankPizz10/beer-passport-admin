@@ -1,13 +1,15 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import DiscoveryImageReviewPanel from "./DiscoveryImageReviewPanel";
 import { apiGet, apiGetBlobUrl } from "../api/client";
 
-// Review-workflow additions to the image panel: for a candidate that
-// matched an existing catalog beer, the panel must name that beer,
-// keep the preview bound to the stored bytes (never the origin URL),
-// and state that an image decision is not an import.
+// Review-workflow additions to the image panel: for a candidate with
+// a SAVED image-only review intent, the panel must name the intent's
+// target beer, keep the preview bound to the stored bytes (never
+// the origin URL), and state that an image decision is not an
+// import. A detector match (matched_beer_id) alone must NOT produce
+// the panel.
 jest.mock("../api/client", () => ({
   apiGet: jest.fn(),
   apiPost: jest.fn(async () => ({})),
@@ -23,6 +25,9 @@ jest.mock("../api/client", () => ({
 
 const mockApiGet = apiGet as jest.Mock;
 const mockApiGetBlobUrl = apiGetBlobUrl as jest.Mock;
+
+// Load headroom for the small shared VM (see the field review suite).
+jest.setTimeout(30000);
 
 const ORIGIN_URL = "https://images.example.com/bud-origin.png";
 
@@ -68,10 +73,25 @@ const successFetch = {
   decision: null,
 };
 
+const imageOnlyIntent = {
+  id: 5,
+  candidate_id: 42,
+  intent: { mode: "image_only", target_beer_id: 7 },
+  created_at: "2026-11-24T00:00:00.000Z",
+};
+
+// What GET review-intent returns for this candidate; each test sets
+// it before rendering.
+let intentResult: unknown = imageOnlyIntent;
+
 beforeEach(() => {
   jest.clearAllMocks();
+  intentResult = imageOnlyIntent;
   mockApiGetBlobUrl.mockResolvedValue("blob:preview-url");
   mockApiGet.mockImplementation((path: string) => {
+    if (path === "/discovery/candidates/42/review-intent") {
+      return Promise.resolve(intentResult);
+    }
     if (path.includes("/image-fetches")) {
       return Promise.resolve({
         results: [successFetch],
@@ -129,4 +149,30 @@ test("existing-beer image review: explicit target beer, stored-bytes preview, de
   expect(
     screen.getByText(/Nothing is published or imported by this decision/)
   ).toBeInTheDocument();
+});
+
+test("no saved intent: the existing-beer panel stays absent despite the detector match", async () => {
+  intentResult = null;
+  render(
+    <MemoryRouter>
+      <DiscoveryImageReviewPanel candidate={candidate} />
+    </MemoryRouter>
+  );
+
+  // The preview still loads and the intent was actually consulted.
+  const img = (await screen.findByAltText(
+    "Fetched preview for Bud Light (staged)"
+  )) as HTMLImageElement;
+  expect(img.src).toContain("blob:preview-url");
+  await waitFor(() =>
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/discovery/candidates/42/review-intent"
+    )
+  );
+  // matched_beer_id = 7 on the candidate, but with no saved
+  // image-only intent there is no target panel and no gate copy.
+  expect(screen.queryByText("Existing catalog beer")).toBeNull();
+  expect(
+    screen.queryByText(/records an image decision for catalog beer/)
+  ).toBeNull();
 });

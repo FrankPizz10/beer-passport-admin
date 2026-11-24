@@ -71,6 +71,9 @@ const mockGets = (fetches: unknown[], decisions: unknown[] = []) => {
   mockApiGet.mockImplementation((path: string) => {
     if (path.includes("/image-fetches")) return Promise.resolve(listOf(fetches));
     if (path.includes("/image-decisions")) return Promise.resolve(listOf(decisions));
+    // The existing-beer panel consults the saved review intent;
+    // this suite's candidates have none.
+    if (path.includes("/review-intent")) return Promise.resolve(null);
     return Promise.reject(new Error(`unexpected GET ${path}`));
   });
 };
