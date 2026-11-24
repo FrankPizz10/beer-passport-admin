@@ -9,7 +9,13 @@
 #   1. runs server/db/verify-discovery.sql AS the viewer (must pass),
 #   2. runs server/db/verify-discovery-reviewer.sql AS the reviewer
 #      (must pass),
-#   3. seeds one admin user and runs the RUN_DB_TESTS-guarded decision
+#   3. runs server/db/verify-readonly-role.sql AS the viewer (must
+#      pass now that its privilege whitelist covers the discovery
+#      tables granted by migrations 002-005), then RE-RUNS the
+#      clean-slate server/db/readonly-role.sql and asserts the
+#      viewer's 8 discovery SELECT grants survive the re-run and
+#      the verify script still passes,
+#   4. seeds one admin user and runs the RUN_DB_TESTS-guarded decision
 #      and image-review integration suites with the API connected as
 #      viewer (reads) + reviewer (writes).
 # Everything lives in a mktemp scratch directory and is deleted on
@@ -92,6 +98,22 @@ echo "== verify-discovery-reviewer.sql as reviewer =="
 PGPASSWORD="${REVIEWER_PW}" "${PGBIN}/psql" -h "${SCRATCH}" -p "${PGPORT}" \
   -U beerpassport_discovery_reviewer -d "${DBNAME}" -v ON_ERROR_STOP=1 \
   -f "${SERVER_DIR}/db/verify-discovery-reviewer.sql"
+
+echo "== verify-readonly-role.sql as viewer (after migrations 002-005) =="
+PGPASSWORD="${VIEWER_PW}" "${PGBIN}/psql" -h "${SCRATCH}" -p "${PGPORT}" \
+  -U beerpassport_admin_viewer -d "${DBNAME}" -v ON_ERROR_STOP=1 \
+  -f "${SERVER_DIR}/db/verify-readonly-role.sql"
+
+echo "== re-run readonly-role.sql: viewer discovery grants must survive =="
+"${PSQL_DB[@]}" -q -v viewer_password="${VIEWER_PW}" -f "${SERVER_DIR}/db/readonly-role.sql"
+DISCOVERY_GRANTS="$("${PSQL_DB[@]}" -t -A -c "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a JOIN pg_roles r ON r.oid = a.grantee WHERE n.nspname = 'public' AND r.rolname = 'beerpassport_admin_viewer' AND a.privilege_type = 'SELECT' AND c.relname IN ('discovery_batches', 'discovery_candidates', 'discovery_candidate_pairs', 'discovery_decisions', 'discovery_image_fetches', 'discovery_image_decisions', 'discovery_import_manifests', 'discovery_manifest_events');")"
+echo "viewer discovery SELECT grants after role re-run: ${DISCOVERY_GRANTS} (expect 8)"
+test "${DISCOVERY_GRANTS}" = "8"
+
+echo "== verify-readonly-role.sql as viewer (after role re-run) =="
+PGPASSWORD="${VIEWER_PW}" "${PGBIN}/psql" -h "${SCRATCH}" -p "${PGPORT}" \
+  -U beerpassport_admin_viewer -d "${DBNAME}" -v ON_ERROR_STOP=1 \
+  -f "${SERVER_DIR}/db/verify-readonly-role.sql"
 
 echo "== decision + image endpoint integration tests (RUN_DB_TESTS=1) =="
 export DATABASE_URL="postgresql://beerpassport_admin_viewer:${VIEWER_PW}@localhost:${PGPORT}/${DBNAME}?host=${SCRATCH}"
