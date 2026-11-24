@@ -10,6 +10,7 @@ import {
 import { ErrorState, Loading } from "../components/States";
 import { fmtBool, fmtDate, fmtVal } from "../components/helpers";
 import DiscoveryImageReviewPanel from "./DiscoveryImageReviewPanel";
+import DiscoveryCandidateFieldReview from "../components/DiscoveryCandidateFieldReview";
 
 // The hold-reason vocabulary (issues/001); the API requires one for
 // hold and reject decisions and refuses the decision without it.
@@ -45,6 +46,9 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Bumped when the review-intent section saves an intent, so the
+  // image panel's existing-beer panel re-reads the saved intent.
+  const [intentTick, setIntentTick] = useState(0);
 
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error.message} onRetry={reload} />;
@@ -102,6 +106,11 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">Description</span>{fmtVal(data.description)}</div>
       </div>
 
+      <DiscoveryCandidateFieldReview
+        candidate={data}
+        onIntentSaved={() => setIntentTick((t) => t + 1)}
+      />
+
       <h2>Provenance</h2>
       <div className="detail-grid">
         <div><span className="field-label">Source</span>{data.source}</div>
@@ -150,7 +159,11 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">Image Page URL</span>{data.image_page_url ? <a href={data.image_page_url}>{data.image_page_url}</a> : "None"}</div>
       </div>
 
-      <DiscoveryImageReviewPanel candidate={data} onDecisionRecorded={reload} />
+      <DiscoveryImageReviewPanel
+        candidate={data}
+        onDecisionRecorded={reload}
+        intentRefreshKey={intentTick}
+      />
 
       <h2>Review State</h2>
       <div className="detail-grid">
