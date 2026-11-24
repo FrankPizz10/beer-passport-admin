@@ -24,6 +24,8 @@ import ApiKeysPage from "./pages/ApiKeysPage";
 import DiscoveryBatchesPage from "./pages/DiscoveryBatchesPage";
 import DiscoveryCandidatesPage from "./pages/DiscoveryCandidatesPage";
 import DiscoveryCandidateDetailPage from "./pages/DiscoveryCandidateDetailPage";
+import DiscoveryPairPage from "./pages/DiscoveryPairPage";
+import DiscoveryBatchDecisionsPage from "./pages/DiscoveryBatchDecisionsPage";
 
 function AppRoutes() {
   const location = useLocation();
@@ -48,7 +50,9 @@ function AppRoutes() {
           <Route path="catalog/image-queue" element={<ImageQueuePage />} />
           <Route path="discovery/batches" element={<DiscoveryBatchesPage />} />
           <Route path="discovery/batches/:batchId/candidates" element={<DiscoveryCandidatesPage />} />
+          <Route path="discovery/batches/:batchId/decisions" element={<DiscoveryBatchDecisionsPage />} />
           <Route path="discovery/candidates/:id" element={<DiscoveryCandidateDetailPage />} />
+          <Route path="discovery/pairs/:pairId" element={<DiscoveryPairPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:id" element={<UserDetailPage />} />
           <Route path="admin/accounts" element={<AdminAccountsPage />} />

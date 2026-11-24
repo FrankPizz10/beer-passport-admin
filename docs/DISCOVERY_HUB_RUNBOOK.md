@@ -1,13 +1,16 @@
-# Catalog discovery hub: staging, ingest, and read-only hub runbook
+# Catalog discovery hub: staging, ingest, hub, and decisions runbook
 
 Hub decision 006 and issues/001-catalog-discovery-hub.md govern this
 work; decision 005 is the selection policy (US-first, evidence-based).
-This runbook covers the read-only phase: the staging schema
-(migration 002), the bundle builder and ingest operator tools, and the
-read-only hub in the admin. There are no decision endpoints, no
-reviewer role, and no catalog writes in this phase. Nothing here
-authorizes applying anything to production: every production step
-remains a separately approved operator action.
+This runbook covers the staging schema (migration 002), the bundle
+builder and ingest operator tools, the read-only hub in the admin,
+and the decision phase (migration 003, the
+beerpassport_discovery_reviewer role, and the candidate-selection
+decision endpoints). The decision phase implements ONLY the first of
+the program's three approval gates (candidate selection): there are
+no image decisions, no import manifests, and no catalog writes.
+Nothing here authorizes applying anything to production: every
+production step remains a separately approved operator action.
 
 ## Schema: migration 002
 
@@ -49,12 +52,14 @@ Verify, connected AS the viewer role:
   direct-privilege whitelist names the 15 catalog tables, so after
   migration 002 its whitelist check reports exactly 3 "unexpected"
   privileges, which are precisely the three discovery SELECT grants.
-  A follow-up change must add `discovery_batches`,
-  `discovery_candidates`, and `discovery_candidate_pairs` to that
-  whitelist; until then, treat a count of exactly 3 (and no other
-  failure in that script) as the expected post-002 result. This was
-  verified on the disposable database: every other check in the script
-  behaves as before.
+  Migration 003 adds a fourth (the viewer's SELECT on
+  discovery_decisions), so the expected count after migration 003 is
+  exactly 4. A follow-up change must add `discovery_batches`,
+  `discovery_candidates`, `discovery_candidate_pairs`, and
+  `discovery_decisions` to that whitelist; until then, treat a count
+  of exactly 4 (and no other failure in that script) as the expected
+  post-003 result. This was verified on the disposable database: every
+  other check in the script behaves as before.
 
 Canonical schema: the staging tables must be mirrored into
 beer-passport-server's Prisma schema before migration 002 is applied
@@ -133,8 +138,109 @@ API (viewer role, existing admin auth):
   dedupe outcome, and pairs.
 
 UI: the Discovery section in the admin nav (Batches, per-batch
-Candidates, Candidate detail). No decision controls exist in this
-phase.
+Candidates, Candidate detail).
+
+## Decisions: migration 003 and the reviewer role
+
+`server/db/migrations/003-discovery-decisions.sql` adds ONE table,
+`discovery_decisions`: the append-only audit trail for review
+decisions (candidate id and/or pair id, the decision, from/to status,
+reason, note, the decider's users id and Firebase UID, created_at).
+The UID is stored only in this table and is never serialized by the
+API. No existing table changes: the decision columns the endpoints
+write already exist from migration 002. The migration also issues
+the viewer's SELECT grant on the new table (guarded, the migration
+002 pattern).
+
+`server/db/discovery-reviewer-role.sql` creates
+`beerpassport_discovery_reviewer` with the same restricted attributes
+as the approver (LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE,
+NOINHERIT, NOREPLICATION, NOBYPASSRLS, CONNECTION LIMIT 5) and
+exactly these grants (issues/001 section 3):
+
+- SELECT on discovery_batches, discovery_candidates,
+  discovery_candidate_pairs, discovery_decisions, beers, breweries.
+- UPDATE (review_status, hold_reason, duplicate_of_candidate_id,
+  updated_at) on discovery_candidates.
+- UPDATE (status, decided_by, decided_at) on
+  discovery_candidate_pairs.
+- INSERT and SELECT on discovery_decisions, USAGE on its id sequence.
+- Nothing else: no INSERT or DELETE on candidates or pairs, no write
+  on any catalog table, no access to users.
+
+Application order on any database (verified on a disposable PG16 by
+`server/scripts/test-discovery-roles.sh`):
+
+1. Catalog base schema, migration 001, readonly-role.sql, migration
+   002 (the read-only phase order above).
+2. `server/db/migrations/003-discovery-decisions.sql`.
+3. `server/db/discovery-reviewer-role.sql` as superuser, with the
+   role password supplied out of band:
+   `psql -d <database> -v reviewer_password='<set-at-deploy-time>' -f server/db/discovery-reviewer-role.sql`
+4. Set `DATABASE_URL_DISCOVERY_WRITE` for the API to the reviewer
+   role's connection string, in
+   `/etc/beerpassport/secrets/admin-api.env` alongside DATABASE_URL
+   and DATABASE_URL_WRITE. Never point it at the owner, viewer, or
+   approver identity.
+5. Deploy the API and the client.
+
+Kill switch: unset `DATABASE_URL_DISCOVERY_WRITE` and restart the
+API. The decision endpoints answer 503; all browsing (including the
+audit reads, which run on the viewer) keeps working.
+
+Verify, after applying:
+
+- Connected AS the reviewer:
+  `server/db/verify-discovery-reviewer.sql` (24 checks: attributes,
+  memberships, ownership, the privilege whitelist, the allowed writes
+  succeeding, and every other write denied, including UPDATE of a
+  non-decision candidate column, INSERT into discovery_candidates,
+  UPDATE on beers, and DELETE anywhere).
+- Connected AS the viewer: `server/db/verify-discovery.sql` still
+  passes unchanged.
+- From Frank's network: open a staged candidate, record a hold with a
+  reason, unhold it, and confirm both rows appear in the batch
+  Decision Audit view with the decider's name.
+
+Decision API (reviewer role; same admin auth as every route):
+
+- `POST /admin-api/v1/discovery/candidates/:id/decide`
+  {decision, reason?, note?}: decision is select, hold, reject, or
+  unhold (issues/001 vocabulary). Hold and reject require a reason
+  from the hold-reason vocabulary ('other' requires a note). A held
+  candidate cannot be selected, and a select is refused while an
+  unresolved duplicate pair exists. Rejected and superseded are
+  final. Answers 503 when DATABASE_URL_DISCOVERY_WRITE is unset.
+- `POST /admin-api/v1/discovery/pairs/:id/decide` {decision, note?}:
+  decision is same or distinct. 'same' supersedes the flagged
+  candidate and sets its duplicate pointer in the same transaction;
+  the audit row records the issues/001 action (mark_duplicate /
+  mark_distinct).
+- `GET /admin-api/v1/discovery/candidates/:id/decisions` and
+  `GET /admin-api/v1/discovery/batches/:id/decisions`: the audit
+  trail (viewer role), newest first.
+
+UI additions: decision controls and decision history on the
+candidate detail page, the side-by-side pair review at
+Discovery > pair (linked from the candidate detail), and the batch
+Decision Audit view linked from each batch card.
+
+Rollback for the decision phase:
+
+1. Revert the API and client deploys.
+2. Unset `DATABASE_URL_DISCOVERY_WRITE` (the kill switch above);
+   decision endpoints stop answering while browsing continues.
+3. Optionally drop the reviewer role (after revoking its grants:
+   run the role script's clean-slate section in reverse, or
+   `DROP ROLE beerpassport_discovery_reviewer` once no session uses
+   it) and drop the audit table: `DROP TABLE discovery_decisions;`
+   (this also drops the viewer's grant on it).
+4. Candidate and pair review_status values already written by
+   decisions REMAIN as they are: they are the audit history of what
+   was decided, and the decisions table (if kept) explains each one.
+   Resetting decided candidates back to pending is a data change
+   that needs its own approved operator action; it is not part of
+   this rollback.
 
 ## Rollback
 
@@ -143,18 +249,15 @@ catalog cannot be affected.
 
 1. Revert the API and client deploys (the routes and pages are
    additive; nothing else references them).
-2. Optionally drop the staging data:
-   `DROP TABLE discovery_candidate_pairs, discovery_candidates, discovery_batches;`
-   (order matters: pairs and candidates reference batches). Dropping
-   the tables also drops the viewer's grants on them.
-3. No other role or env change exists to unwind in this phase (there
-   is no DATABASE_URL_DISCOVERY_WRITE until the review phase).
+2. For the decision phase, follow the decision-phase rollback above.
+3. Optionally drop the staging data:
+   `DROP TABLE discovery_decisions, discovery_candidate_pairs, discovery_candidates, discovery_batches;`
+   (order matters: decisions, pairs, and candidates reference the
+   tables after them). Dropping the tables also drops the viewer's
+   grants on them.
 
 ## Follow-ups owned by later phases
 
-- Reviewer role (`beerpassport_discovery_reviewer`), decision
-  endpoints, and `DATABASE_URL_DISCOVERY_WRITE` (issues/001 phase 2 in
-  the issue's numbering).
 - Image fetch/preview with hash-bound decisions, then immutable
   import manifests (issues/001 sections 4 and 6).
 - The verify-readonly-role.sql whitelist addition noted above.

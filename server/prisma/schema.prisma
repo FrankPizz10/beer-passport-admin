@@ -206,6 +206,7 @@ model discovery_candidates {
   duplicates                discovery_candidates[] @relation("discovery_duplicate_of")
   pairs_as_candidate        discovery_candidate_pairs[] @relation("discovery_pairs_candidate")
   pairs_as_rival            discovery_candidate_pairs[] @relation("discovery_pairs_rival")
+  decisions                 discovery_decisions[] @relation("discovery_decisions_candidate")
 
   @@unique([batch_id, candidate_key], map: "discovery_candidates_batch_key")
   @@index([batch_id], map: "discovery_candidates_batch_id_idx")
@@ -235,10 +236,37 @@ model discovery_candidate_pairs {
   candidate      discovery_candidates @relation("discovery_pairs_candidate", fields: [candidate_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_candidate_id")
   rival          discovery_candidates? @relation("discovery_pairs_rival", fields: [candidate_id_b], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_candidate_id_b")
   decider        users?               @relation("discovery_pairs_decided_by", fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_pairs_decided_by")
+  decisions      discovery_decisions[] @relation("discovery_decisions_pair")
 
   @@index([batch_id], map: "discovery_candidate_pairs_batch_id_idx")
   @@index([candidate_id], map: "discovery_candidate_pairs_candidate_id_idx")
   @@index([status], map: "discovery_candidate_pairs_status_idx")
+}
+
+// Append-only audit trail for discovery review decisions (migration
+// 003 in server/db/migrations; hub decision 006, issues/001). One row
+// per decision, written in the same transaction as the status change.
+// decided_by_uid is recorded for audit durability only and is never
+// serialized by the API.
+model discovery_decisions {
+  id             Int       @id @default(autoincrement())
+  candidate_id   Int?
+  pair_id        Int?
+  decision       String    @db.VarChar(40)
+  from_status    String?   @db.VarChar(20)
+  to_status      String?   @db.VarChar(20)
+  reason         String?   @db.VarChar(40)
+  note           String?   @db.Text
+  decided_by     Int?
+  decided_by_uid String?   @db.VarChar(255)
+  created_at     DateTime  @default(now()) @db.Timestamp(0)
+  candidate      discovery_candidates?    @relation("discovery_decisions_candidate", fields: [candidate_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_decisions_candidate_id")
+  pair           discovery_candidate_pairs? @relation("discovery_decisions_pair", fields: [pair_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_decisions_pair_id")
+  decider        users?                   @relation("discovery_decisions_decided_by", fields: [decided_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_decisions_decided_by")
+
+  @@index([candidate_id], map: "discovery_decisions_candidate_id_idx")
+  @@index([pair_id], map: "discovery_decisions_pair_id_idx")
+  @@index([created_at], map: "discovery_decisions_created_at_idx")
 }
 
 model breweries {
@@ -323,6 +351,7 @@ model users {
   beverage_images_reviewed      beverage_images[]   @relation("beverage_images_reviewed_by")
   image_review_events           image_review_events[] @relation("image_review_events_admin_user")
   discovery_pairs_decided       discovery_candidate_pairs[] @relation("discovery_pairs_decided_by")
+  discovery_decisions_decided   discovery_decisions[] @relation("discovery_decisions_decided_by")
 }
 
 model collections {

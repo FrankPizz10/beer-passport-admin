@@ -397,7 +397,65 @@ export interface DiscoveryPair {
   method: string | null;
   score: number | null;
   status: string;
-  rival: { id: number; name: string; brewery_name: string | null } | null;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string | null;
+  rival: {
+    id: number;
+    name: string;
+    brewery_name: string | null;
+    style: string | null;
+    abv: number | null;
+    barcode: string | null;
+    source: string;
+    origin_bucket: string | null;
+    image_status_normalized: string | null;
+    review_status: string;
+  } | null;
+}
+
+// One audit row from GET /admin-api/v1/discovery/candidates/:id/decisions
+// or /discovery/batches/:id/decisions. decision uses the issues/001
+// action vocabulary (select / hold / reject / unhold for candidates,
+// mark_duplicate / mark_distinct for pairs). The decider is the users
+// id + user_name only; the API never sends the Firebase UID.
+export interface DiscoveryDecision {
+  id: number;
+  candidate_id: number | null;
+  pair_id: number | null;
+  decision: string;
+  from_status: string | null;
+  to_status: string | null;
+  reason: string | null;
+  note: string | null;
+  decided_by: { id: number; user_name: string } | null;
+  created_at: string;
+}
+
+// One side of the side-by-side pair view (GET /discovery/pairs/:id):
+// the candidate list-row fields plus provenance identifiers.
+export interface DiscoveryPairSide extends DiscoveryCandidate {
+  source_record_id: string;
+  source_url: string | null;
+}
+
+// Response of GET /admin-api/v1/discovery/pairs/:id: the pair plus
+// both sides serialized (rival is null when it lives in another batch
+// and is named by external_ref).
+export interface DiscoveryPairDetail {
+  id: number;
+  batch_id: number;
+  candidate_id: number;
+  candidate_id_b: number | null;
+  external_ref: string | null;
+  comparison: string | null;
+  method: string | null;
+  score: number | null;
+  status: string;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string | null;
+  created_at: string;
+  candidate: DiscoveryPairSide | null;
+  rival: DiscoveryPairSide | null;
 }
 
 // Response of GET /admin-api/v1/discovery/candidates/:id: the list-row
