@@ -479,8 +479,59 @@ export interface DiscoveryCandidateDetail extends DiscoveryCandidate {
   image_height: number | null;
   hold_note: string | null;
   duplicate_of_candidate_id: number | null;
+  // Current hash-bound image decision state (Phase 4): the decision
+  // (approved / rejected), the fetch it binds to, and when it was
+  // recorded. All null until an image decision exists.
+  image_decision: string | null;
+  image_decision_fetch_id: number | null;
+  image_decision_at: string | null;
   created_at: string;
   updated_at: string;
   batch: { id: number; slug: string; title: string | null };
   pairs: DiscoveryPair[];
+}
+
+// One row of GET /admin-api/v1/discovery/candidates/:id/image-fetches:
+// a single server-side fetch attempt of the candidate's staged image.
+// outcome is 'success' or a failure class (dns_blocked,
+// redirect_blocked, downgrade_blocked, too_large, not_image,
+// magic_mismatch, unreachable, timeout). sha256 / content_type /
+// dimensions are set only on success; content_type is the VERIFIED
+// type from the magic bytes. decision is the fetch's image decision
+// when one exists (a fetch can be decided exactly once).
+export interface DiscoveryImageFetch {
+  id: number;
+  candidate_id: number;
+  image_ref: string;
+  sha256: string | null;
+  content_type: string | null;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+  outcome: string;
+  outcome_detail: string | null;
+  fetched_by: { id: number; user_name: string } | null;
+  fetched_at: string;
+  decision: { id: number; decision: string; decided_at: string } | null;
+}
+
+// One row of GET /admin-api/v1/discovery/candidates/:id/image-decisions:
+// the append-only audit of hash-bound image decisions. image_sha256
+// is the hash of the exact bytes that were previewed from the named
+// fetch; the decider is users id + user_name only.
+export interface DiscoveryImageDecision {
+  id: number;
+  candidate_id: number;
+  fetch_id: number;
+  image_ref: string;
+  image_sha256: string;
+  image_content_type: string | null;
+  image_width: number | null;
+  image_height: number | null;
+  image_source: string | null;
+  image_license: string | null;
+  decision: string;
+  note: string | null;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string;
 }

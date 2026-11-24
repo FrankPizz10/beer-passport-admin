@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "../api/client";
 jest.mock("../api/client", () => ({
   apiGet: jest.fn(),
   apiPost: jest.fn(),
+  apiGetBlobUrl: jest.fn(async () => "blob:preview"),
   ApiError: class ApiError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -83,9 +84,14 @@ const emptyDecisions = {
 };
 
 const mockGets = (detailValue: unknown, decisionsValue: unknown = emptyDecisions) => {
-  mockApiGet.mockImplementation((path: string) =>
-    Promise.resolve(path.includes("/decisions") ? decisionsValue : detailValue)
-  );
+  mockApiGet.mockImplementation((path: string) => {
+    // The Phase 4 image review panel reads its own lists; both are
+    // empty in these page-level tests (the panel has its own suite).
+    if (path.includes("/image-fetches") || path.includes("/image-decisions")) {
+      return Promise.resolve(emptyDecisions);
+    }
+    return Promise.resolve(path.includes("/decisions") ? decisionsValue : detailValue);
+  });
 };
 
 const renderDetail = () =>
@@ -123,8 +129,9 @@ test("renders provenance, origin evidence, and pairs", async () => {
   // Origin evidence
   expect(screen.getByText(/country: United States/)).toBeInTheDocument();
   expect(screen.getByText(/brewery_country: US/)).toBeInTheDocument();
-  // Image status, verbatim and normalized
-  expect(screen.getByText("verified-by-review")).toBeInTheDocument();
+  // Image status, verbatim and normalized (the verbatim status shows
+  // twice: the Image section and the Phase 4 Image Review panel).
+  expect(screen.getAllByText("verified-by-review")).toHaveLength(2);
   // Pairs, with a link into the side-by-side pair review
   expect(screen.getByText(/same_name_brewery/)).toBeInTheDocument();
   expect(
