@@ -182,6 +182,11 @@ const main = async () => {
       },
       insertBundle: async ({ manifest: m, candidates, pairs }) => {
         let pairsInserted = 0;
+        // The full domestic bundle is 6,817 records inserted inside
+        // this one transaction, which exceeds Prisma's default 5s
+        // transaction timeout (P2028, clean rollback). The explicit
+        // timeout/maxWait keep the ingest a single all-or-nothing
+        // transaction at full-set scale; do not batch or split it.
         await prisma.$transaction(async (tx: any) => {
           const batch = await tx.discovery_batches.create({
             data: {
@@ -263,7 +268,7 @@ const main = async () => {
             });
             pairsInserted += 1;
           }
-        });
+        }, { timeout: 900000, maxWait: 120000 });
         return { pairs_inserted: pairsInserted };
       },
     });
