@@ -397,6 +397,239 @@ Rollback for the image phase:
    004's teardown; recorded image decisions are audit history and
    are not reset by a rollback).
 
+## Import manifests: migration 005, hash-bound approval, and the import executor
+
+Phase 5 is the only path from staged candidates to live catalog
+rows. It implements hub decision 006 revisions 1 and 2: three
+separate approval gates, and no gate implies another.
+
+1. Candidate selection (Phase 3): a reviewer selects candidates and
+   resolves their duplicate pairs.
+2. Candidate image approval (Phase 4): a reviewer approves the exact
+   fetched bytes of a candidate's image, bound to the fetch SHA-256.
+3. Manifest approval (this phase): Frank approves ONE immutable
+   manifest, identified by its id and the SHA-256 of its canonical
+   bytes. Only that exact manifest, with that exact hash, can be
+   imported, and only while nothing it froze has changed.
+
+### Schema: migration 005
+
+`server/db/migrations/005-discovery-manifests.sql` adds two tables:
+
+- `discovery_import_manifests`: `id` in the
+  `mf-<batch-slug>-<yyyymmdd>-<seq>` format is the primary key;
+  `manifest` holds the canonical content as jsonb; `sha256` (unique)
+  is the SHA-256 of the canonical bytes; `record_count`;
+  `catalog_fingerprint` (jsonb) records the build-time catalog
+  fingerprint; `status` is draft / approved / imported / void;
+  `built_by` (+ uid), `approved_by`, `approved_at`,
+  `approved_sha256`, `imported_at`, `created_at`.
+- `discovery_manifest_events`: the manifest audit trail (build /
+  approve / void / import, from/to status, note, actor). Manifest
+  events live in their own table rather than `discovery_decisions`
+  because that table's CHECK requires a candidate or pair target;
+  the shape and conventions otherwise follow Phase 3.
+
+The viewer role gets SELECT on both tables (guarded grant in the
+migration). The reviewer role gets INSERT + SELECT on both tables
+and UPDATE on exactly the four approval columns of
+`discovery_import_manifests` (`status`, `approved_by`,
+`approved_at`, `approved_sha256`), plus USAGE on the events id
+sequence. Marking a manifest imported is deliberately NOT among the
+reviewer's grants: only the operator executor (below) does that.
+
+### Canonical form and ids
+
+The manifest content is serialized as canonical JSON: keys sorted
+at every depth, no insignificant whitespace, one trailing LF.
+`sha256` is the SHA-256 of exactly those bytes; the export endpoint
+returns exactly those bytes, so the hash is verifiable offline.
+Manifest ids are `mf-<batch-slug>-<yyyymmdd>-<seq>` with the date in
+UTC and a per-day sequence. A manifest covers ONE batch.
+
+### Build (POST /discovery/batches/:id/manifests)
+
+Building takes ALL of the batch's `selected` candidates, in
+candidate_key order. A candidate is import-eligible when:
+
+- its selection decision is final (it is `selected`, with a recorded
+  selection decision);
+- it has no unresolved duplicate pair and no live-catalog match;
+- its brewery is known (a staged brewery name is required; the name
+  resolves to exactly one live brewery, or to none, in which case
+  the import creates it; more than one live namesake is ambiguous
+  and blocks);
+- its style resolves (a staged style name must match exactly one
+  live style, whose category is recorded; a candidate with no style
+  imports with no style);
+- its attached image, if any, carries an approved Phase 4 decision.
+  "Attached" means the candidate has a staged image URL. An
+  undecided image blocks (`image_unverified`), and a REJECTED image
+  also blocks (`image_rejected`): there is no detach operation, so a
+  rejected image must be re-fetched and approved before the
+  candidate can be imported.
+
+If ANY selected candidate is not eligible, the build refuses with
+422, lists every blocking candidate with every reason, and creates
+nothing. A manifest never silently includes or excludes a
+candidate. A batch with no selected candidates also refuses (422).
+At build time the API computes the catalog fingerprint (below) and
+records it in the manifest.
+
+### Approval (POST /discovery/manifests/:id/approve)
+
+Frank's gate. The body is `{ "sha256": "<64 hex>" }`. The caller
+must be on the API-layer allowlist: the
+`DISCOVERY_MANIFEST_APPROVER_USER_IDS` env var holds a
+comma-separated list of `users.id` values (Postgres cannot see
+Firebase identity, so the gate lives in the API). The env var unset
+or unparseable means NOBODY can approve (fail closed). Responses:
+403 for a caller not on the allowlist, 400 for a malformed hash,
+422 when the supplied hash differs from the manifest's stored hash,
+409 when the manifest is not in draft status, 503 when the
+discovery write path is not configured. On success the endpoint
+writes `status`, `approved_by`, `approved_at`, and
+`approved_sha256` atomically with an `approve` audit event. The
+manifest detail response carries `can_approve`, computed
+server-side from the allowlist for the signed-in account; the
+client uses it only to show or hide the approve control. The API
+enforces the gate regardless.
+
+Void (POST /discovery/manifests/:id/void, optional `note`) moves a
+draft or approved manifest to `void`, with an audit event. A voided
+manifest can never be imported (the executor checks status).
+Imported and void manifests are final.
+
+### Export and offline verification
+
+GET /discovery/manifests/:id/export downloads the canonical bytes
+exactly as hashed (Content-Type application/json, Content-Disposition
+attachment, `X-Manifest-Sha256` header). Verify offline:
+
+```
+sha256sum mf-<batch-slug>-<yyyymmdd>-<seq>.json
+```
+
+The digest must equal the manifest's recorded sha256 (shown in full
+on the admin detail page) before the hash is approved or imported.
+
+### The catalog fingerprint
+
+Per catalog table, a row count plus an MD5 over content-bearing
+columns in id order: beers (id, name, brewery_id, last_mod),
+breweries (id, name, last_mod), beverage_images (id, beverage_id,
+status, updated_at). Count-preserving edits move the MD5 and are
+detected. DEVIATION from issues/001's wording: the issue names
+`updated_at` for beers and breweries, but the catalog tables'
+timestamp column is `last_mod`; the fingerprint uses `last_mod` for
+those two tables. beverage_images does have `updated_at`.
+
+### Import (operator executor)
+
+`server/scripts/import-discovery-manifest.ts` is an operator tool,
+never an API path. It runs ONLY under the operator/migration
+identity (`DATABASE_URL_ADMIN_LOADER`); it refuses to start without
+it. Arguments: `--manifest <id>` and `--sha256 <64 hex>`, both
+required; `--dry-run` optional.
+
+```
+DATABASE_URL_ADMIN_LOADER=<operator url> \
+  npx ts-node --transpile-only scripts/import-discovery-manifest.ts \
+    --manifest mf-<batch-slug>-<yyyymmdd>-<seq> --sha256 <approved hash>
+```
+
+PRODUCTION RULE: a production import requires Frank's approval of
+the exact manifest id + sha256, recorded out of band (for example
+in the approval conversation or a signed note), and the operator
+passes that recorded hash as `--sha256`. The executor refuses on
+any mismatch between the supplied hash, the stored hash, the
+approved hash, and the recomputed content hash. Approval of a plan
+or of the manifest feature is NOT approval of an import; each
+import needs its own id + hash approval.
+
+The import runs as ONE transaction at REPEATABLE READ:
+
+1. It takes a transaction-scoped advisory lock on the fixed
+   catalog-import key (777001239). A concurrent import waits, then
+   revalidates against the new baseline.
+2. It locks the manifest's candidate rows SELECT ... FOR UPDATE.
+3. It runs all five checks INSIDE the transaction, in order:
+   (1) the manifest is `approved` and its `approved_sha256` equals
+   the stored hash, the recomputed content hash, and the
+   operator-supplied `--sha256`;
+   (2) every candidate is still in the recorded decided state:
+   still `selected`, the selection decision still the latest and
+   unchanged, the staged payload hash unchanged, and the image
+   decision state (approved decision id, fetch id, hash) unchanged;
+   (3) no candidate has gained an unresolved pair or a live-catalog
+   collision (barcode, or normalized name + brewery);
+   (4) referenced breweries, styles, and categories still resolve
+   as recorded (an "existing" row still exists, a style's category
+   still matches; a "new" brewery name still has no live namesake);
+   (5) the live catalog fingerprint still equals the build-time
+   fingerprint recorded in the manifest.
+4. It re-fetches every attached image through the Phase 4
+   restricted fetcher and re-hashes the bytes inside the
+   transaction. On a match the beverage_images row is written
+   directly as `approved` with `verified_at` set (the Phase 4
+   decision IS the approval) and the candidate's image decision id
+   named in the row's attribution provenance (the catalog schema
+   has no dedicated provenance column; the attribution reads
+   `Discovery hub import: manifest <id>, candidate <key>, image
+   decision <id>`, appended after any staged attribution). On a
+   mismatch the import ABORTS; nothing degrades to pending.
+5. It writes, still in the one transaction: new breweries the
+   manifest marks as new (manifest order, deduplicated within the
+   manifest), beers with NEW ids assigned above the current max
+   beer id in manifest order, the beverage_images rows, candidates
+   marked `imported` with their new beer id, and the manifest
+   marked `imported` with `imported_at` and an `import` audit event
+   carrying the report.
+
+Any check failure aborts the whole transaction with a specific
+error (`IMPORT REFUSED [<check>]: ...`, exit 1) and imports
+nothing. Under REPEATABLE READ, a SELECT ... FOR UPDATE that hits a
+row a concurrent import already updated raises a serialization
+failure (SQLSTATE 40001 / Prisma P2034); the executor maps that to
+a `stale` refusal, which is the same operational meaning: the
+ground moved, nothing was written, retry deliberately after
+re-checking state. `--dry-run` runs the lock, all five checks, the
+image re-fetch and hash verification, and the full payload
+validation, then rolls back and prints the would-be report
+(including the ids that WOULD be assigned). A successful run prints
+a JSON report: manifest id, sha256, beers / breweries / images
+inserted, and the per-candidate id assignments.
+
+### Manifest rollback
+
+- Before import: void the manifest. A voided manifest can never be
+  imported; build and approve a replacement instead. Manifests are
+  immutable, so there is no edit path.
+- After import: an executed import is a catalog data change. Its
+  reversal is a separate, separately approved data operation
+  (delete or retire the imported beers / images / created
+  breweries by the ids in the import report and the `import` audit
+  event, and return the candidates to a decided state). It is
+  documented here and deliberately NOT built: no tool in this phase
+  reverses an import.
+- Schema teardown (full hub rollback only): drop
+  `discovery_manifest_events` then `discovery_import_manifests`,
+  in that order (events reference manifests). Recorded manifest
+  history is audit data and is not reset by an API or client
+  rollback.
+
+### Rehearsal
+
+`server/scripts/test-discovery-manifests.sh` is the phase's proof
+harness: a disposable socket-only PG16 with the base schema,
+migrations 001-005, both roles, the Phase 2 seed bundle (25
+records) ingested, the executor CLI refusal checks, the full
+manifest integration suite (build, approve, export, real import,
+and the six negative scenarios), and an offline `sha256sum`
+verification of the exported manifest. The manifest role grants are
+also covered by `server/scripts/test-discovery-roles.sh`
+(verify-discovery-reviewer.sql / verify-discovery.sql).
+
 ## Rollback
 
 All schema is additive and confined to the discovery tables; the
@@ -406,18 +639,18 @@ catalog cannot be affected.
    additive; nothing else references them).
 2. For the decision phase, follow the decision-phase rollback above.
 3. For the image phase, follow the image-phase rollback above.
-4. Optionally drop the staging data:
-   `DROP TABLE discovery_image_decisions, discovery_image_fetches, discovery_decisions, discovery_candidate_pairs, discovery_candidates, discovery_batches;`
-   (order matters: image decisions reference fetches and
-   candidates, decisions, pairs, and candidates reference the
-   tables after them). Dropping the tables also drops the viewer's
-   grants on them.
+4. For the manifest phase, follow the manifest rollback above (void
+   before import; an executed import is reversed only as a separate
+   approved data operation).
+5. Optionally drop the staging data:
+   `DROP TABLE discovery_manifest_events, discovery_import_manifests, discovery_image_decisions, discovery_image_fetches, discovery_decisions, discovery_candidate_pairs, discovery_candidates, discovery_batches;`
+   (order matters: manifest events reference manifests, image
+   decisions reference fetches and candidates, decisions, pairs,
+   and candidates reference the tables after them). Dropping the
+   tables also drops the viewer's grants on them.
 
 ## Follow-ups owned by later phases
 
-- Immutable import manifests and revalidation gates (issues/001
-  section 6). Image fetch/preview with hash-bound decisions landed
-  in Phase 4 (see the image review section above).
 - The verify-readonly-role.sql whitelist addition noted above.
 - Batch 2's per-record image verification state lives in the POC
   manifest, not in batch-702.json; reproducing issue 001's "170
