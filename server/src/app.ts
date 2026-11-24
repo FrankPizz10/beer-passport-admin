@@ -1,12 +1,16 @@
-// Express app assembly. Every route is GET-only except the two image
-// approval endpoints (POST /images/:id/approve and /reject), which run
-// on the separate write client from writeDb.ts and are the only
-// mutation surface in the server. The health route is public; every
-// other /admin-api/v1 route sits behind decodeAdminToken.
+// Express app assembly. Every route is GET-only except the image
+// approval endpoints (POST /images/:id/approve and /reject) on the
+// write client from writeDb.ts and the discovery decision endpoints
+// (POST /discovery/candidates/:id/decide and
+// /discovery/pairs/:id/decide) on the write client from
+// discoveryWriteDb.ts; those two modules are the only mutation surface
+// in the server. The health route is public; every other
+// /admin-api/v1 route sits behind decodeAdminToken.
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { getPrisma } from './db';
 import { getWritePrisma } from './writeDb';
+import { getDiscoveryWritePrisma } from './discoveryWriteDb';
 import { getAuthVerifier, AuthVerifier } from './firebase';
 import { createDecodeAdminToken, defaultFindUserByUid } from './middleware/decodeAdminToken';
 import decodeAdminToken from './middleware/decodeAdminToken';
@@ -16,12 +20,14 @@ import { createAdminRouter } from './routes/admin';
 import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
+import { createDiscoveryDecisionsRouter } from './routes/discoveryDecisions';
 import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
 export type AppDeps = {
   prisma?: any;
   writePrisma?: any;
+  discoveryWritePrisma?: any;
   verifyIdToken?: (token: string) => Promise<any>;
   findUserByUid?: (uid: string) => Promise<any>;
   firebaseVerifier?: AuthVerifier;
@@ -67,6 +73,14 @@ export const createApp = (deps: AppDeps = {}) => {
   const writePrisma =
     deps.writePrisma !== undefined ? deps.writePrisma : getWritePrisma();
 
+  // Likewise null when DATABASE_URL_DISCOVERY_WRITE is unset; the
+  // discovery decision endpoints then answer 503 and all browsing is
+  // unaffected.
+  const discoveryWritePrisma =
+    deps.discoveryWritePrisma !== undefined
+      ? deps.discoveryWritePrisma
+      : getDiscoveryWritePrisma();
+
   const api = express.Router();
   api.use(authMiddleware);
   api.use(createCatalogRouter(prisma));
@@ -75,6 +89,7 @@ export const createApp = (deps: AppDeps = {}) => {
   api.use(createImagesRouter(prisma, presignGetUrl));
   api.use(createImageApprovalsRouter(prisma, writePrisma));
   api.use(createDiscoveryRouter(prisma));
+  api.use(createDiscoveryDecisionsRouter(prisma, discoveryWritePrisma));
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {
