@@ -1,5 +1,27 @@
 # Catalog discovery hub: staging, ingest, hub, and decisions runbook
 
+## Reviewed fields and image-only intents
+
+Apply the canonical server-repository Prisma migration
+`20261124000002_discovery_review_intents` once before deploying an API
+that uses review intents. Do not apply duplicate DDL from the admin
+repository. The migration grants existing roles when present; the viewer
+and reviewer role scripts restore those grants on rerun. Verify both roles
+after migration. See `DISCOVERY_REVIEW_INTENT_API.md` for the API contract.
+
+Original staging data is not overwritten. An append-only intent records
+reviewed beer fields or an explicit existing-beer image target. Saving it
+does not itself select the candidate or publish an image. Image-only
+imports require an approved image and do not create a beer or brewery;
+an identical content-addressed image already on the target is refused.
+
+New manifests use schema version 2 and bind the intent revision to the
+approval hash. Version 1 remains supported. Version 2 payload hashes are
+domain-separated so previously released executors refuse them rather than
+apply version 1 semantics. Use the updated operator executor for version 2.
+After an edit or target change, select the candidate and build a new
+manifest; an older approval does not authorize the new values.
+
 Hub decision 006 and issues/001-catalog-discovery-hub.md govern this
 work; decision 005 is the selection policy (US-first, evidence-based).
 This runbook covers the staging schema (migration 002), the bundle

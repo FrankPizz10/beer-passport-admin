@@ -30,8 +30,10 @@
 //   breweries:       id, name, last_mod
 //   beverage_images: id, beverage_id, status, updated_at
 import * as crypto from 'crypto';
+import { ReviewIntent } from './discoveryReviewIntent';
 
 export const MANIFEST_SCHEMA = 'discovery-import-manifest/1';
+export const REVIEW_MANIFEST_SCHEMA = 'discovery-import-manifest/2';
 export const MANIFEST_GENERATOR = 'discovery-manifest-builder';
 export const MANIFEST_GENERATOR_VERSION = '1.0.0';
 
@@ -68,6 +70,13 @@ export const manifestSha256 = (content: unknown): string =>
 // since the build changes it.
 export const payloadSha256 = (payload: unknown): string =>
   sha256Hex(canonicalStringify(payload === undefined ? null : payload));
+
+// Version 2 deliberately uses a domain-separated payload hash. An older
+// executor, which does not inspect schema versions, compares this value
+// with the v1 hash and refuses rather than importing v2 records under v1
+// semantics. This is not a replacement for the v2 revision checks.
+export const reviewPayloadSha256 = (payload: unknown): string =>
+  sha256Hex('discovery-manifest-v2:' + payloadSha256(payload));
 
 export const manifestDateStamp = (date: Date): string => {
   const y = date.getUTCFullYear();
@@ -174,6 +183,9 @@ export type ManifestStyleResolution =
   | { mode: 'none' };
 
 export interface ManifestRecord {
+  kind?: 'new_beer' | 'image_only';
+  intent_revision_id?: number | null;
+  target_beer_id?: number;
   candidate_id: number;
   candidate_key: string;
   payload_sha256: string;
@@ -214,8 +226,9 @@ export const buildManifestContent = (input: {
   createdAt: Date;
   createdBy: number | null;
   records: ManifestRecord[];
+  schema?: string;
 }): ManifestContent => ({
-  schema: MANIFEST_SCHEMA,
+  schema: input.schema ?? MANIFEST_SCHEMA,
   id: input.id,
   batch: input.batch,
   generator: { name: MANIFEST_GENERATOR, version: MANIFEST_GENERATOR_VERSION },
@@ -271,6 +284,7 @@ export interface EligibilityInput {
   } | null;
   brewery: BreweryLookup;
   style: StyleLookup;
+  reviewIntent?: { id: number; intent: ReviewIntent } | null;
 }
 
 export type EligibilityResult =
@@ -287,11 +301,13 @@ export const evaluateEligibility = (input: EligibilityInput): EligibilityResult 
   if (c.review_status !== 'selected') reasons.push('not_selected');
   if (input.selectionDecisionId === null) reasons.push('selection_decision_missing');
   if (input.unresolvedPairs > 0) reasons.push('unresolved_pairs');
-  if (c.matched_beer_id !== null && c.matched_beer_id !== undefined) reasons.push('already_in_catalog');
+  const intent = input.reviewIntent?.intent;
+  const imageOnly = intent?.mode === 'image_only';
+  if (!imageOnly && c.matched_beer_id !== null && c.matched_beer_id !== undefined) reasons.push('already_in_catalog');
   const breweryName = typeof c.brewery_name === 'string' ? c.brewery_name.trim() : '';
-  if (!breweryName) reasons.push('missing_brewery');
-  if (input.brewery.mode === 'ambiguous') reasons.push('brewery_ambiguous');
-  if (input.style.mode === 'unresolved') reasons.push('style_unresolved');
+  if (!imageOnly && !breweryName) reasons.push('missing_brewery');
+  if (!imageOnly && input.brewery.mode === 'ambiguous') reasons.push('brewery_ambiguous');
+  if (!imageOnly && input.style.mode === 'unresolved') reasons.push('style_unresolved');
 
   let image: ManifestImageDisposition | null = null;
   const hasImage = typeof c.image_url === 'string' && c.image_url.trim() !== '';
@@ -309,6 +325,7 @@ export const evaluateEligibility = (input: EligibilityInput): EligibilityResult 
       };
     }
   }
+  if (imageOnly && !image) reasons.push('approved_image_required');
 
   if (reasons.length > 0) {
     return { ok: false, candidate_id: c.id, candidate_key: c.candidate_key, reasons };
@@ -316,13 +333,18 @@ export const evaluateEligibility = (input: EligibilityInput): EligibilityResult 
   return {
     ok: true,
     record: {
+      ...(input.reviewIntent ? {
+        kind: imageOnly ? 'image_only' as const : 'new_beer' as const,
+        intent_revision_id: input.reviewIntent.id,
+        ...(intent?.mode === 'image_only' ? { target_beer_id: intent.target_beer_id } : {}),
+      } : {}),
       candidate_id: c.id,
       candidate_key: c.candidate_key,
       payload_sha256: payloadSha256(c.payload),
       selection_decision_id: input.selectionDecisionId as number,
       beer: {
         name: c.name,
-        brewery_name: breweryName,
+        brewery_name: c.brewery_name as string,
         style: c.style,
         abv: c.abv,
         ibu: c.ibu,

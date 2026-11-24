@@ -114,12 +114,13 @@
 // argument and configuration refusals exit 2.
 import { PrismaClient } from '@prisma/client';
 import { fetchImageRestricted, FetchedImage, FetchResult } from '../src/discoveryImageFetch';
-import { getDefaultDiscoveryUploader, UploadImageFn } from '../src/discoveryImageUpload';
+import { discoveryObjectKey, getDefaultDiscoveryUploader, UploadImageFn } from '../src/discoveryImageUpload';
 import {
-  CATALOG_IMPORT_ADVISORY_LOCK_KEY, ManifestContent, ManifestRecord,
+  CATALOG_IMPORT_ADVISORY_LOCK_KEY, MANIFEST_SCHEMA, REVIEW_MANIFEST_SCHEMA, ManifestContent, ManifestRecord,
   computeCatalogFingerprint, fingerprintDiff, fingerprintsEqual,
-  manifestSha256, normalizeText, payloadSha256,
+  manifestSha256, normalizeText, payloadSha256, reviewPayloadSha256, canonicalStringify,
 } from '../src/discoveryManifestCore';
+import { parseReviewIntent } from '../src/discoveryReviewIntent';
 
 export class ImportRefusedError extends Error {
   check: string;
@@ -288,6 +289,9 @@ export const runImport = async (
         if (!content || !Array.isArray(content.records) || content.id !== row.id) {
           throw refused('check1', `manifest ${row.id} content is malformed (id or records missing).`);
         }
+        if (content.schema !== MANIFEST_SCHEMA && content.schema !== REVIEW_MANIFEST_SCHEMA) {
+          throw refused('check1', `manifest ${row.id} has an unsupported schema version.`);
+        }
         const records: ManifestRecord[] = content.records;
         const candidateIds = records.map((r) => r.candidate_id);
         if (!candidateIds.every(isInt) || candidateIds.length === 0) {
@@ -328,8 +332,35 @@ export const runImport = async (
           if (currentStatus !== 'selected') {
             throw refused('check2', `candidate ${record.candidate_id} (${record.candidate_key}) is ${currentStatus}, not selected; its decision state changed after the manifest was built.`);
           }
-          if (payloadSha256(candidate.payload) !== record.payload_sha256) {
+          const currentPayloadHash = content.schema === REVIEW_MANIFEST_SCHEMA ? reviewPayloadSha256(candidate.payload) : payloadSha256(candidate.payload);
+          if (currentPayloadHash !== record.payload_sha256) {
             throw refused('check2', `candidate ${record.candidate_id} (${record.candidate_key}) staged payload changed after the manifest was built (payload hash mismatch).`);
+          }
+          if (content.schema === REVIEW_MANIFEST_SCHEMA) {
+            const revision = await tx.discovery_review_intents.findFirst({ where: { candidate_id: record.candidate_id }, orderBy: { id: 'desc' } });
+            if ((revision?.id ?? null) !== (record.intent_revision_id ?? null)) {
+              throw refused('check2', `candidate ${record.candidate_id} review intent changed after the manifest was built.`);
+            }
+            if (revision) {
+              let intent;
+              try { intent = parseReviewIntent(revision.intent); }
+              catch { throw refused('check2', `candidate ${record.candidate_id} has an invalid review intent.`); }
+              if (intent.mode !== record.kind || (intent.mode === 'image_only' && (record.target_beer_id !== intent.target_beer_id || !record.image)) ||
+                  (intent.mode === 'new_beer' && canonicalStringify(intent.beer) !== canonicalStringify(record.beer))) {
+                throw refused('check2', `candidate ${record.candidate_id} review intent does not match the manifest.`);
+              }
+            } else if (record.kind !== undefined || record.target_beer_id !== undefined) {
+              throw refused('check2', `candidate ${record.candidate_id} has no matching intent revision.`);
+            } else {
+              const staged = { name: candidate.name, brewery_name: candidate.brewery_name,
+                style: candidate.style, abv: candidate.abv, ibu: candidate.ibu,
+                barcode: candidate.barcode, description: candidate.description };
+              if (canonicalStringify(staged) !== canonicalStringify(record.beer)) {
+                throw refused('check2', `candidate ${record.candidate_id} staged beer fields changed after the manifest was built.`);
+              }
+            }
+          } else if (record.kind !== undefined || record.intent_revision_id !== undefined || record.target_beer_id !== undefined) {
+            throw refused('check1', `manifest ${row.id} contains unsupported version 1 fields.`);
           }
           const latest = await tx.discovery_decisions.findFirst({
             where: { candidate_id: record.candidate_id, pair_id: null },
@@ -367,23 +398,28 @@ export const runImport = async (
           if (pendingPairs > 0) {
             throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) has ${pendingPairs} unresolved duplicate pair(s) again.`);
           }
+          if (content.schema === REVIEW_MANIFEST_SCHEMA && record.kind === 'image_only') continue;
           const lockedRow = lockById.get(record.candidate_id);
           const currentMatched = lockedRow ? lockedRow.matched_beer_id : candidate.matched_beer_id;
           if (currentMatched !== null && currentMatched !== undefined) {
             throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) is now matched to live beer ${currentMatched}.`);
           }
-          if (candidate.barcode) {
-            const byBarcode = await tx.beers.findFirst({ where: { upc: candidate.barcode } });
+          const reviewedBeer = content.schema === REVIEW_MANIFEST_SCHEMA ? record.beer : null;
+          const barcode = reviewedBeer ? reviewedBeer.barcode : candidate.barcode;
+          if (barcode) {
+            const byBarcode = await tx.beers.findFirst({ where: { upc: barcode } });
             if (byBarcode) {
-              throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) barcode ${candidate.barcode} now collides with live beer ${byBarcode.id}.`);
+              throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) barcode ${barcode} now collides with live beer ${byBarcode.id}.`);
             }
           }
-          if (candidate.normalized_name && candidate.normalized_brewery) {
+          const normalizedName = reviewedBeer ? normalizeText(reviewedBeer.name) : candidate.normalized_name;
+          const normalizedBrewery = reviewedBeer ? normalizeText(reviewedBeer.brewery_name) : candidate.normalized_brewery;
+          if (normalizedName && normalizedBrewery) {
             const clash = await tx.$queryRawUnsafe(
               `SELECT b.id FROM beers b JOIN breweries br ON br.id = b.brewery_id
                WHERE trim(regexp_replace(lower(b.name), '[^a-z0-9]+', ' ', 'g')) = $1
                  AND trim(regexp_replace(lower(br.name), '[^a-z0-9]+', ' ', 'g')) = $2 LIMIT 1`,
-              candidate.normalized_name, candidate.normalized_brewery,
+              normalizedName, normalizedBrewery,
             );
             if (Array.isArray(clash) && clash.length > 0) {
               throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) now collides with live beer ${clash[0].id} by normalized name + brewery.`);
@@ -393,7 +429,21 @@ export const runImport = async (
 
         // CHECK 4: brewery / style / category resolution unchanged.
         const breweryIdByRecord = new Map<number, number | 'new'>();
+        const imageOnlyTargetByRecord = new Map<number, any>();
+        const imageOnlyKeys = new Set<string>();
         for (const record of records) {
+          if (content.schema === REVIEW_MANIFEST_SCHEMA && record.kind === 'image_only') {
+            const target = await tx.beers.findUnique({ where: { id: record.target_beer_id }, select: { id: true, brewery_id: true } });
+            if (!target) throw refused('check4', `candidate ${record.candidate_id} target beer no longer exists.`);
+            if (!record.image) throw refused('check4', `candidate ${record.candidate_id} has no approved image.`);
+            const imageKey = `${target.id}:${record.image.sha256}`;
+            if (imageOnlyKeys.has(imageKey)) throw refused('check4', `manifest contains the same image more than once for beer ${target.id}.`);
+            imageOnlyKeys.add(imageKey);
+            const existingImage = await tx.beverage_images.findFirst({ where: { beverage_id: target.id, storage_key: discoveryObjectKey(record.image.sha256) }, select: { id: true } });
+            if (existingImage) throw refused('check4', `candidate ${record.candidate_id} image already exists on beer ${target.id}.`);
+            imageOnlyTargetByRecord.set(record.candidate_id, target);
+            continue;
+          }
           if (record.brewery.mode === 'existing') {
             const brewery = await tx.breweries.findUnique({ where: { id: record.brewery.brewery_id } });
             if (!brewery) {
@@ -471,6 +521,8 @@ export const runImport = async (
           const wouldBeBreweryId = new Map<string, number>();
           for (const key of newBreweryNames) wouldBeBreweryId.set(key, ++nextBrewery);
           const assignments: ImportIdAssignment[] = records.map((record) => {
+            const target = imageOnlyTargetByRecord.get(record.candidate_id);
+            if (target) return { candidate_id: record.candidate_id, candidate_key: record.candidate_key, beer_id: target.id, brewery_id: target.brewery_id, image_id: null };
             const existing = breweryIdByRecord.get(record.candidate_id);
             const breweryId = existing === 'new'
               ? (wouldBeBreweryId.get(newBreweryKeyByRecord.get(record.candidate_id) as string) as number)
@@ -487,7 +539,7 @@ export const runImport = async (
             manifest_id: row.id,
             sha256: row.sha256,
             dry_run: true,
-            beers_inserted: records.length,
+            beers_inserted: records.length - imageOnlyTargetByRecord.size,
             breweries_inserted: newBreweryNames.length,
             images_inserted: records.filter((r) => r.image).length,
             id_assignments: assignments,
@@ -551,11 +603,12 @@ export const runImport = async (
         let imagesInserted = 0;
         for (const record of records) {
           const candidate = candidateById.get(record.candidate_id);
+          const target = imageOnlyTargetByRecord.get(record.candidate_id);
           const existing = breweryIdByRecord.get(record.candidate_id);
-          const breweryId = existing === 'new'
+          const breweryId = target ? target.brewery_id : existing === 'new'
             ? (createdBreweryId.get(newBreweryKeyByRecord.get(record.candidate_id) as string) as number)
             : (existing as number);
-          const beer = await tx.beers.create({
+          const beer = target ?? await tx.beers.create({
             data: {
               name: record.beer.name,
               brewery_id: breweryId,
@@ -611,7 +664,7 @@ export const runImport = async (
           manifest_id: row.id,
           sha256: row.sha256,
           dry_run: false,
-          beers_inserted: assignments.length,
+          beers_inserted: assignments.length - imageOnlyTargetByRecord.size,
           breweries_inserted: createdBreweryId.size,
           images_inserted: imagesInserted,
           id_assignments: assignments,

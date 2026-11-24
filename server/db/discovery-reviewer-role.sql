@@ -154,12 +154,12 @@ BEGIN
               AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
           OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
               'discovery_image_decisions', 'discovery_import_manifests',
-              'discovery_manifest_events') AND c.relkind = 'r'
+              'discovery_manifest_events', 'discovery_review_intents') AND c.relkind = 'r'
               AND a.privilege_type IN ('INSERT', 'SELECT'))
           OR (c.relname IN ('discovery_decisions_id_seq',
               'discovery_image_fetches_id_seq',
               'discovery_image_decisions_id_seq',
-              'discovery_manifest_events_id_seq') AND c.relkind = 'S'
+              'discovery_manifest_events_id_seq', 'discovery_review_intents_id_seq') AND c.relkind = 'S'
               AND a.privilege_type = 'USAGE')))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
@@ -311,6 +311,15 @@ GRANT UPDATE (status, approved_by, approved_at, approved_sha256)
   ON discovery_import_manifests TO beerpassport_discovery_reviewer;
 GRANT USAGE ON SEQUENCE discovery_manifest_events_id_seq
   TO beerpassport_discovery_reviewer;
+
+-- The canonical Prisma migration can run after this role script on a
+-- new install. On a rerun, restore the append-only intent grants.
+DO $$ BEGIN
+  IF to_regclass('public.discovery_review_intents') IS NOT NULL THEN
+    GRANT SELECT, INSERT ON discovery_review_intents TO beerpassport_discovery_reviewer;
+    GRANT USAGE ON SEQUENCE discovery_review_intents_id_seq TO beerpassport_discovery_reviewer;
+  END IF;
+END $$;
 
 -- Belt and braces: no default privileges may auto-grant this role
 -- anything on future tables.

@@ -74,6 +74,7 @@ import {
   parsePagination, parseIdParam, paginationResult, skipFor,
 } from '../pagination';
 import { HOLD_REASONS, serializeCandidateListRow } from './discovery';
+import { parseReviewIntent, ReviewIntentError } from '../discoveryReviewIntent';
 
 const wrap = (fn: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response) => { fn(req, res).catch((e) => sendError(res, e)); };
@@ -139,6 +140,55 @@ export const createDiscoveryDecisionsRouter = (readPrisma: any, writePrisma: any
       res.locals.user && typeof res.locals.user.id === 'number' ? (res.locals.user.id as number) : null,
     adminUid: typeof res.locals.firebaseUid === 'string' ? (res.locals.firebaseUid as string) : null,
   });
+
+  router.get('/discovery/candidates/:id/review-intent', wrap(async (req: Request, res: Response) => {
+    const id = parseIdParam(req.params.id);
+    const candidate = await readPrisma.discovery_candidates.findUnique({ where: { id }, select: { id: true } });
+    if (!candidate) throw notFound('Discovery candidate not found.');
+    const row = await readPrisma.discovery_review_intents.findFirst({ where: { candidate_id: id }, orderBy: { id: 'desc' } });
+    res.json(row ? { id: row.id, candidate_id: id, intent: row.intent, created_at: row.created_at } : null);
+  }));
+
+  router.post('/discovery/candidates/:id/review-intent', wrap(async (req: Request, res: Response) => {
+    if (!writePrisma) throw serviceUnavailable('Discovery decisions are not configured on this server.');
+    const id = parseIdParam(req.params.id);
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body) ||
+        Object.keys(body).some(k => !['intent', 'expected_revision'].includes(k)) ||
+        !('expected_revision' in body) ||
+        (body.expected_revision !== null && (!Number.isSafeInteger(body.expected_revision) || body.expected_revision <= 0))) {
+      throw invalidParameter('expected_revision must be null or a positive revision ID.');
+    }
+    let intent;
+    try { intent = parseReviewIntent(body.intent); }
+    catch (err) {
+      if (err instanceof ReviewIntentError) throw invalidParameter(err.message);
+      throw err;
+    }
+    const { adminUserId, adminUid } = deciderOf(res);
+    const result = await writePrisma.$transaction(async (tx: any) => {
+      const rows = await tx.$queryRaw`SELECT id, review_status, name, brewery_name, style, abv, ibu, barcode, description FROM discovery_candidates WHERE id = ${id} FOR UPDATE`;
+      if (!rows.length) throw notFound('Discovery candidate not found.');
+      if (rows[0].review_status !== 'pending') throw conflict('Review intent can only be changed while the candidate is pending.');
+      if (intent.mode === 'image_only') {
+        const target = await tx.beers.findUnique({ where: { id: intent.target_beer_id }, select: { id: true } });
+        if (!target) throw notFound('Target beer not found.');
+      }
+      const previous = await tx.discovery_review_intents.findFirst({ where: { candidate_id: id }, orderBy: { id: 'desc' } });
+      if ((previous?.id ?? null) !== body.expected_revision) throw conflict('Review intent changed; reload before saving.');
+      const source = rows[0];
+      const original = { mode: 'staged_source', beer: {
+        name: source.name ?? null, brewery_name: source.brewery_name ?? null,
+        style: source.style ?? null, abv: source.abv ?? null, ibu: source.ibu ?? null,
+        barcode: source.barcode ?? null, description: source.description ?? null,
+      } };
+      return tx.discovery_review_intents.create({ data: {
+        candidate_id: id, intent, previous_intent: previous?.intent ?? original,
+        decided_by: adminUserId, decided_by_uid: adminUid,
+      } });
+    });
+    res.status(201).json({ id: result.id, candidate_id: id, intent: result.intent, created_at: result.created_at });
+  }));
 
   router.post('/discovery/candidates/:id/decide', wrap(async (req: Request, res: Response) => {
     if (!writePrisma) {

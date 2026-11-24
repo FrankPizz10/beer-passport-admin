@@ -115,6 +115,58 @@ const appWith = (read: any, writePrisma: any) =>
     ...adminDeps,
   } as any);
 
+describe('review intent', () => {
+  const beer = { name: 'Ale', brewery_name: 'Brewery', style: null, abv: 4.2, ibu: null, barcode: null, description: null };
+  const makeTx = (status = 'pending') => ({
+    $queryRaw: jest.fn(async () => [{ id: 11, review_status: status }]),
+    beers: { findUnique: jest.fn(async () => ({ id: 42 })) },
+    discovery_review_intents: {
+      findFirst: jest.fn(async () => null),
+      create: jest.fn(async ({ data }: any) => ({ id: 7, ...data, created_at: new Date() })),
+    },
+  });
+
+  it('records reviewed fields atomically without exposing the actor UID', async () => {
+    const tx = makeTx();
+    const write = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+    const res = await auth(request(appWith(readPrismaWith(), write)).post('/admin-api/v1/discovery/candidates/11/review-intent'))
+      .send({ intent: { mode: 'new_beer', beer }, expected_revision: null });
+    expect(res.status).toBe(201);
+    expect(res.body.intent).toEqual({ mode: 'new_beer', beer });
+    expect(JSON.stringify(res.body)).not.toContain(ADMIN_UID);
+    expect(tx.discovery_review_intents.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses changes after selection', async () => {
+    const tx = makeTx('selected');
+    const write = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+    const res = await auth(request(appWith(readPrismaWith(), write)).post('/admin-api/v1/discovery/candidates/11/review-intent'))
+      .send({ intent: { mode: 'new_beer', beer }, expected_revision: null });
+    expect(res.status).toBe(409);
+    expect(tx.discovery_review_intents.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses an image target which does not exist', async () => {
+    const tx = makeTx();
+    tx.beers.findUnique.mockResolvedValueOnce(null as any);
+    const write = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+    const res = await auth(request(appWith(readPrismaWith(), write)).post('/admin-api/v1/discovery/candidates/11/review-intent'))
+      .send({ intent: { mode: 'image_only', target_beer_id: 42 }, expected_revision: null });
+    expect(res.status).toBe(404);
+    expect(tx.discovery_review_intents.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects stale revisions rather than overwriting another reviewer', async () => {
+    const tx = makeTx();
+    tx.discovery_review_intents.findFirst.mockResolvedValueOnce({ id: 9, intent: { mode: 'image_only', target_beer_id: 42 } } as any);
+    const write = { $transaction: jest.fn(async (fn: any) => fn(tx)) };
+    const res = await auth(request(appWith(readPrismaWith(), write)).post('/admin-api/v1/discovery/candidates/11/review-intent'))
+      .send({ intent: { mode: 'new_beer', beer }, expected_revision: null });
+    expect(res.status).toBe(409);
+    expect(tx.discovery_review_intents.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /discovery/candidates/:id/decide', () => {
   it('selects a pending candidate and writes the audit row in one transaction', async () => {
     const { writePrisma, tx } = makeWritePrisma();

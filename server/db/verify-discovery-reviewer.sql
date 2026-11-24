@@ -17,6 +17,21 @@
 \set ON_ERROR_STOP on
 BEGIN;
 
+-- Optional until the canonical review-intent migration has been applied.
+DO $$
+BEGIN
+  IF to_regclass('public.discovery_review_intents') IS NOT NULL THEN
+    IF NOT has_table_privilege(current_user, 'public.discovery_review_intents', 'SELECT')
+       OR NOT has_table_privilege(current_user, 'public.discovery_review_intents', 'INSERT')
+       OR NOT has_sequence_privilege(current_user, 'public.discovery_review_intents_id_seq', 'USAGE')
+       OR has_table_privilege(current_user, 'public.discovery_review_intents', 'UPDATE')
+       OR has_table_privilege(current_user, 'public.discovery_review_intents', 'DELETE') THEN
+      RAISE EXCEPTION 'FAIL: review-intent privileges are not append-only';
+    END IF;
+    RAISE NOTICE 'PASS: review-intent privileges are append-only';
+  END IF;
+END $$;
+
 -- Role attributes, connection limit, memberships, and ownership.
 DO $$
 DECLARE
@@ -99,12 +114,12 @@ BEGIN
              AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
          OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
              'discovery_image_decisions', 'discovery_import_manifests',
-             'discovery_manifest_events') AND c.relkind = 'r'
+             'discovery_manifest_events', 'discovery_review_intents') AND c.relkind = 'r'
              AND a.privilege_type IN ('INSERT', 'SELECT'))
          OR (c.relname IN ('discovery_decisions_id_seq',
              'discovery_image_fetches_id_seq',
              'discovery_image_decisions_id_seq',
-             'discovery_manifest_events_id_seq') AND c.relkind = 'S'
+             'discovery_manifest_events_id_seq', 'discovery_review_intents_id_seq') AND c.relkind = 'S'
              AND a.privilege_type = 'USAGE')));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_attribute att
