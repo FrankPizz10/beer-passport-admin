@@ -139,8 +139,40 @@ jobs:
         run: |
           git fetch origin master
           test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
-      - name: Build release image
-        run: docker build --pull --platform linux/amd64 -t "$IMAGE_REPO:$GITHUB_SHA" server/
+      - name: Configure AWS identity
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.BP_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Sign in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Prepare release image
+        id: prepared
+        run: |
+          set -euo pipefail
+          err_file="$(mktemp)"
+          out_file="$(mktemp)"
+          trap 'rm -f "$err_file" "$out_file"' EXIT
+          if aws ecr describe-images \
+            --repository-name beerpassport-admin-api \
+            --image-ids "imageTag=$GITHUB_SHA" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text >"$out_file" 2>"$err_file"; then
+            digest="$(cat "$out_file")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            echo "Immutable ECR tag already exists; reusing $digest"
+            docker pull "$IMAGE_REPO@$digest"
+            docker tag "$IMAGE_REPO@$digest" "$IMAGE_REPO:$GITHUB_SHA"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif grep -q 'ImageNotFoundException' "$err_file"; then
+            echo "No ECR image exists for $GITHUB_SHA; building it."
+            docker build --pull --platform linux/amd64 -t "$IMAGE_REPO:$GITHUB_SHA" server/
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            cat "$err_file" >&2
+            exit 1
+          fi
       - name: Report high-severity findings in release image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -162,20 +194,21 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL
           exit-code: "1"
-      - name: Configure AWS identity
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ vars.BP_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Sign in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
       - name: Publish and capture digest
         id: publish
+        env:
+          EXISTING_IMAGE: ${{ steps.prepared.outputs.exists }}
+          EXISTING_DIGEST: ${{ steps.prepared.outputs.digest }}
         run: |
           set -euo pipefail
-          docker push "$IMAGE_REPO:$GITHUB_SHA" | tee /tmp/bp-push.log
-          digest="$(sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' /tmp/bp-push.log | tail -n 1)"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          if [[ "$EXISTING_IMAGE" == "true" ]]; then
+            digest="$EXISTING_DIGEST"
+            echo "Reusing existing immutable ECR image digest $digest"
+          else
+            docker push "$IMAGE_REPO:$GITHUB_SHA" | tee /tmp/bp-push.log
+            digest="$(sed -n 's/.*digest: \(sha256:[0-9a-f]*\).*/\1/p' /tmp/bp-push.log | tail -n 1)"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          fi
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Deploy immutable digest via constrained SSM document
         env:
