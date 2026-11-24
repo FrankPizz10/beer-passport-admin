@@ -1,6 +1,6 @@
-# Review intent API (implementation in progress)
+# Review intent API
 
-This contract is not deployed. Paths are under `/admin-api/v1` and use
+This contract is live in production. Paths are under `/admin-api/v1` and use
 the existing admin authentication. Review intent is an append-only
 snapshot and does not itself select a candidate or publish an image.
 
