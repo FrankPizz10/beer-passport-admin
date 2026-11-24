@@ -601,6 +601,39 @@ The import runs as ONE transaction at REPEATABLE READ:
    marked `imported` with `imported_at` and an `import` audit event
    carrying the report.
 
+7. Image storage (real imports only, never `--dry-run`): after
+   the re-fetch and re-hash in step 4 and before any catalog row
+   is written, the verified bytes are uploaded to the private
+   image bucket, and the beverage_images row's `storage_key` is
+   the returned object key (the origin URL stays in `source_url`).
+   Configuration is the same environment the API's presigned read
+   path uses, resolved under the OPERATOR identity running the
+   executor: `ADMIN_IMAGE_BUCKET`, plus `ADMIN_IMAGE_REGION`
+   (`AWS_REGION` as fallback). Key layout is content-addressed:
+   `discovery/<first 2 hex chars of the sha256>/<full sha256>`, so
+   a retry, or a second import of the same bytes, PUTs identical
+   content to the same key. Every PUT sets the verified
+   ContentType and `ChecksumSHA256` (base64 of the verified hash),
+   so S3 itself rejects bytes that do not match. The uploader
+   retries transient failures only (throttling, 5xx, timeouts,
+   network errors): at most 3 attempts with exponential backoff;
+   a failure after that aborts the import as `IMPORT REFUSED
+   [image_upload]` and the database transaction rolls back. A
+   manifest that carries images while no bucket is configured
+   refuses the same way rather than storing a source URL as
+   `storage_key`. Ordering note: the PUT is not part of the
+   database transaction, so an abort after a successful PUT (a
+   later image failing, a commit failure) leaves an orphan
+   object; content addressing makes it harmless (exactly the
+   verified bytes under their hash, referenced by no row, and a
+   retry overwrites the same key). The permission the operator
+   identity needs is documented in
+   `docs/ci-cd/discovery-image-upload-policy.example.json`:
+   `s3:PutObject` on the `discovery/` prefix of the one bucket,
+   nothing else. Attach it to the OPERATOR identity only, never
+   to the API identity: the API's signing identity stays
+   GetObject-only, and the read path is unchanged.
+
 Any check failure aborts the whole transaction with a specific
 error (`IMPORT REFUSED [<check>]: ...`, exit 1) and imports
 nothing. Under REPEATABLE READ, a SELECT ... FOR UPDATE that hits a
