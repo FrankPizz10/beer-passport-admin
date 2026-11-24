@@ -4,6 +4,7 @@ import { apiGet, apiGetBlobUrl, apiPost, ApiError } from "../api/client";
 import { useApiData } from "../api/useApiData";
 import { DiscoveryManifestDetail } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
+import DiscoveryManifestComposition from "../components/DiscoveryManifestComposition";
 import { fmtDate, fmtVal } from "../components/helpers";
 
 // One discovery import manifest (Phase 5). The full SHA-256 is the
@@ -217,6 +218,8 @@ const DiscoveryManifestDetailPage: React.FC = () => {
           </p>
         ) : null}
       </section>
+
+      <DiscoveryManifestComposition manifest={manifest} />
 
       <section className="queue-card">
         <h2>Records ({manifest.records.length})</h2>

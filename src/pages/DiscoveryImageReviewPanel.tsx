@@ -8,6 +8,7 @@ import {
   ListResponse,
 } from "../api/types";
 import { fmtDate, fmtVal } from "../components/helpers";
+import DiscoveryExistingBeerPanel from "../components/DiscoveryExistingBeerPanel";
 
 // Image Review panel (hub decision 006 revision 2): hash-bound image
 // decisions for a staged candidate. The reviewer NEVER sees the image
@@ -184,6 +185,8 @@ const DiscoveryImageReviewPanel: React.FC<{
         </div>
       </div>
 
+      <DiscoveryExistingBeerPanel candidate={candidate} />
+
       <div className="decision-actions">
         <button type="button" disabled={busy || !candidate.image_url} onClick={doFetch}>
           Fetch image for review
@@ -299,6 +302,12 @@ const DiscoveryImageReviewPanel: React.FC<{
             </button>
           </div>
           {decideDisabledReason && <p>{decideDisabledReason}</p>}
+          <p className="gate-note">
+            Approving or rejecting here records an image decision only.
+            Nothing is published or imported by this decision; import
+            is a separate step gated on the exact manifest ID and
+            SHA-256.
+          </p>
         </div>
       )}
 
