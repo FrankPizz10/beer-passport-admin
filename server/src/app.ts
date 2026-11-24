@@ -1,11 +1,12 @@
 // Express app assembly. Every route is GET-only except the image
 // approval endpoints (POST /images/:id/approve and /reject) on the
-// write client from writeDb.ts and the discovery decision endpoints
-// (POST /discovery/candidates/:id/decide and
-// /discovery/pairs/:id/decide) on the write client from
-// discoveryWriteDb.ts; those two modules are the only mutation surface
-// in the server. The health route is public; every other
-// /admin-api/v1 route sits behind decodeAdminToken.
+// write client from writeDb.ts and the discovery review endpoints
+// (POST /discovery/candidates/:id/decide,
+// /discovery/pairs/:id/decide, and the image review POSTs
+// /discovery/candidates/:id/image-fetches and /image-decisions) on
+// the write client from discoveryWriteDb.ts; those modules are the
+// only mutation surface in the server. The health route is public;
+// every other /admin-api/v1 route sits behind decodeAdminToken.
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { getPrisma } from './db';
@@ -21,6 +22,7 @@ import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
 import { createDiscoveryDecisionsRouter } from './routes/discoveryDecisions';
+import { createDiscoveryImagesRouter, DiscoveryImageServices } from './routes/discoveryImages';
 import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
@@ -32,6 +34,7 @@ export type AppDeps = {
   findUserByUid?: (uid: string) => Promise<any>;
   firebaseVerifier?: AuthVerifier;
   presignGetUrl?: PresignGetUrl | null;
+  discoveryImageServices?: DiscoveryImageServices;
 };
 
 export const createApp = (deps: AppDeps = {}) => {
@@ -90,6 +93,11 @@ export const createApp = (deps: AppDeps = {}) => {
   api.use(createImageApprovalsRouter(prisma, writePrisma));
   api.use(createDiscoveryRouter(prisma));
   api.use(createDiscoveryDecisionsRouter(prisma, discoveryWritePrisma));
+  if (deps.discoveryImageServices) {
+    api.use(createDiscoveryImagesRouter(prisma, discoveryWritePrisma, deps.discoveryImageServices));
+  } else {
+    api.use(createDiscoveryImagesRouter(prisma, discoveryWritePrisma));
+  }
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {

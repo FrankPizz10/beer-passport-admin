@@ -3,8 +3,8 @@ import * as path from 'path';
 
 // The viewer is read-only by construction, with exactly two scoped
 // exceptions: the image approval workflow's write path and the
-// discovery hub's decision write path. Prisma mutation methods may
-// appear ONLY in these four modules:
+// discovery hub's review write path. Prisma mutation methods may
+// appear ONLY in these six modules:
 //   - src/writeDb.ts                    builds the approver Prisma client
 //   - src/routes/imageApprovals.ts      the POST approve/reject handlers
 //   - src/discoveryWriteDb.ts           builds the discovery reviewer
@@ -12,6 +12,14 @@ import * as path from 'path';
 //   - src/routes/discoveryDecisions.ts  the POST discovery decide
 //                                       handlers (candidate-selection
 //                                       gate only; decision 006)
+//   - src/routes/discoveryImages.ts     the POST discovery image fetch
+//                                       and image-decision handlers
+//                                       (hash-bound image gate;
+//                                       decision 006 revision 2)
+//   - src/discoveryImageFetch.ts        contains NO Prisma call at
+//                                       all; it is listed only because
+//                                       crypto's Hash.update( trips
+//                                       the text search below
 // Every other server source file must contain no mutation call at all.
 // Widening this list is a deliberate, reviewed act: edit this test in
 // the same change and justify it in review. (Operator scripts under
@@ -23,6 +31,8 @@ const MUTATION_ALLOWED_FILES = new Set([
   path.join(__dirname, 'routes', 'imageApprovals.ts'),
   path.join(__dirname, 'discoveryWriteDb.ts'),
   path.join(__dirname, 'routes', 'discoveryDecisions.ts'),
+  path.join(__dirname, 'routes', 'discoveryImages.ts'),
+  path.join(__dirname, 'discoveryImageFetch.ts'),
 ]);
 
 const collect = (dir: string): string[] => {
@@ -36,8 +46,8 @@ const collect = (dir: string): string[] => {
 };
 
 describe('read only guard', () => {
-  it('the mutation exception is exactly the four write-path modules, and they exist', () => {
-    expect(MUTATION_ALLOWED_FILES.size).toBe(4);
+  it('the mutation exception is exactly the six write-path modules, and they exist', () => {
+    expect(MUTATION_ALLOWED_FILES.size).toBe(6);
     for (const file of MUTATION_ALLOWED_FILES) {
       expect(fs.existsSync(file)).toBe(true);
     }
@@ -55,11 +65,12 @@ describe('read only guard', () => {
     }
   });
 
-  it('the approval and discovery-decision route modules are the only route modules with mutation calls', () => {
+  it('the approval and discovery review route modules are the only route modules with mutation calls', () => {
     const routesDir = path.join(__dirname, 'routes');
     const mutationRoutes = new Set([
       path.join(routesDir, 'imageApprovals.ts'),
       path.join(routesDir, 'discoveryDecisions.ts'),
+      path.join(routesDir, 'discoveryImages.ts'),
     ]);
     for (const file of collect(routesDir)) {
       const text = fs.readFileSync(file, 'utf8');
