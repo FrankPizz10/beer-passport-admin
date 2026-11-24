@@ -19,7 +19,12 @@
 // regressions close the suite: sequences already ahead of the table
 // maximum are never rewound, a sequence alignment failure aborts
 // before any write, and a normal catalog write attempted mid-import
-// is held off by the import's catalog table locks.
+// is held off by the import's catalog table locks. The S3 storage
+// scenarios run throughout via a stub uploader (never AWS): the
+// positive import stores the content-addressed key and the stub
+// receives exactly the verified bytes, --dry-run uploads nothing,
+// and the suite ends with an uploader-failure abort and a
+// no-uploader-configured refusal, both image_upload.
 //
 // Clients are constructed lazily inside beforeAll: a PrismaClient
 // built at describe-body level would throw on a missing URL even
@@ -37,6 +42,7 @@ import { getDiscoveryWritePrisma } from '../src/discoveryWriteDb';
 import { createRestrictedFetcher, defaultSeams, sha256Hex } from '../src/discoveryImageFetch';
 import { createImageStore } from '../src/discoveryImageStore';
 import { ImportRefusedError, runImport } from '../scripts/import-discovery-manifest';
+import { discoveryObjectKey } from '../src/discoveryImageUpload';
 
 const run = process.env.RUN_DB_TESTS === '1' ? describe : describe.skip;
 
@@ -256,6 +262,37 @@ run('discovery manifests + import executor against the disposable database', () 
 
   const fetchImage = () => seamFetchImage;
 
+  // Stub S3 uploader: records every call (bytes copied) and returns
+  // the real content-addressed key derivation, so scenarios can
+  // assert the executor uploaded exactly the verified bytes and
+  // stored the key. No AWS anywhere near this suite.
+  const uploadCalls: Array<{ bytes: Buffer; sha256: string; contentType: string }> = [];
+  const stubUploadImage = async (image: { bytes: Buffer; sha256: string; contentType: string }) => {
+    uploadCalls.push({
+      bytes: Buffer.from(image.bytes),
+      sha256: image.sha256,
+      contentType: image.contentType,
+    });
+    return discoveryObjectKey(image.sha256);
+  };
+  const importDeps = () => ({ fetchImage: fetchImage(), uploadImage: stubUploadImage });
+  const expectedStorageKey = `discovery/${PNG_SHA.slice(0, 2)}/${PNG_SHA}`;
+
+  // Pool access for the late scenarios: the shared cursor can run
+  // dry (the positive scenario's no-image scan skips ahead), so fall
+  // back to any pool candidate still pending and untouched.
+  const takeCandidate = async (): Promise<any> => {
+    try {
+      return takeFromPool(1)[0];
+    } catch {
+      for (const c of pool) {
+        const fresh = await owner.discovery_candidates.findUnique({ where: { id: c.id } });
+        if (fresh?.review_status === 'pending') return fresh;
+      }
+      throw new Error('no unused candidate available');
+    }
+  };
+
   it('positive: build, approve, export, and import a manifest end to end', async () => {
     const withImages = takeFromPool(2);
     // The no-image record: a pool candidate with no staged image URL
@@ -325,10 +362,11 @@ run('discovery manifests + import executor against the disposable database', () 
 
     const beersBefore = await beerCount();
     const imagesBefore = await imageCount();
+    uploadCalls.length = 0;
     const report = await runImport(
       loader,
       { manifestId: built.id, expectedSha256: built.sha256 },
-      { fetchImage: fetchImage() },
+      importDeps(),
     );
     expect(report.dry_run).toBe(false);
     expect(report.beers_inserted).toBe(3);
@@ -366,7 +404,23 @@ run('discovery manifests + import executor against the disposable database', () 
         expect(image?.beverage_id).toBe(assignment.beer_id);
         expect(image?.attribution).toContain(`manifest ${built.id}`);
         expect(image?.attribution).toContain('image decision');
+        // The S3 gap, closed: storage_key is the content-addressed
+        // object key (the bare key the presigned read path
+        // resolves), NOT the source URL; source_url still carries
+        // the origin.
+        expect(image?.storage_key).toBe(expectedStorageKey);
+        expect(image?.source_url).not.toBe(expectedStorageKey);
       }
+    }
+
+    // The uploader received exactly the verified bytes, once per
+    // image record: same length, same hash, verified content type.
+    expect(uploadCalls).toHaveLength(2);
+    for (const call of uploadCalls) {
+      expect(call.sha256).toBe(PNG_SHA);
+      expect(call.contentType).toBe('image/png');
+      expect(call.bytes.length).toBe(PNG.length);
+      expect(sha256Hex(call.bytes)).toBe(PNG_SHA);
     }
 
     const stored = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
@@ -386,7 +440,7 @@ run('discovery manifests + import executor against the disposable database', () 
     const built = await buildManifest();
     const beersBefore = await beerCount();
     await expect(
-      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() }),
+      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()),
     ).rejects.toMatchObject({ check: 'check1' });
     expect(await beerCount()).toBe(beersBefore);
     const stored = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
@@ -404,7 +458,7 @@ run('discovery manifests + import executor against the disposable database', () 
     await owner.beers.update({ where: { id: 101 }, data: { name: 'Seed Lager One Renamed' } });
     const beersBefore = await beerCount();
     const failure = await runImport(
-      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
     ).catch((e) => e);
     expect(failure).toBeInstanceOf(ImportRefusedError);
     expect(failure.check).toBe('check5');
@@ -427,7 +481,7 @@ run('discovery manifests + import executor against the disposable database', () 
     expect(rejected.status).toBe(200);
     const beersBefore = await beerCount();
     const failure = await runImport(
-      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
     ).catch((e) => e);
     expect(failure).toBeInstanceOf(ImportRefusedError);
     expect(failure.check).toBe('check2');
@@ -445,7 +499,7 @@ run('discovery manifests + import executor against the disposable database', () 
     const beersBefore = await beerCount();
     const imagesBefore = await imageCount();
     const failure = await runImport(
-      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
     ).catch((e) => e);
     served.delete('/img/tamper.png');
     expect(failure).toBeInstanceOf(ImportRefusedError);
@@ -468,8 +522,8 @@ run('discovery manifests + import executor against the disposable database', () 
     const beersBefore = await beerCount();
     const imagesBefore = await imageCount();
     const results = await Promise.allSettled([
-      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() }),
-      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() }),
+      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()),
+      runImport(loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps()),
     ]);
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     const rejectedResults = results.filter((r) => r.status === 'rejected');
@@ -496,11 +550,15 @@ run('discovery manifests + import executor against the disposable database', () 
     const beersBefore = await beerCount();
     const imagesBefore = await imageCount();
     const maxBeer = await owner.beers.aggregate({ _max: { id: true } });
+    uploadCalls.length = 0;
     const report = await runImport(
       loader,
       { manifestId: built.id, expectedSha256: built.sha256, dryRun: true },
-      { fetchImage: fetchImage() },
+      importDeps(),
     );
+    // A dry run performs NO upload: the bytes are re-fetched and
+    // verified, but nothing is PUT to the bucket.
+    expect(uploadCalls).toHaveLength(0);
     expect(report.dry_run).toBe(true);
     expect(report.beers_inserted).toBe(1);
     expect(report.images_inserted).toBe(1);
@@ -530,7 +588,7 @@ run('discovery manifests + import executor against the disposable database', () 
     await owner.$queryRawUnsafe(`SELECT setval('breweries_id_seq', ${maxBrewery + 500}, true)`);
     await owner.$queryRawUnsafe(`SELECT setval('beverage_images_id_seq', ${maxImage + 500}, true)`);
     const report = await runImport(
-      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
     );
     expect(report.beers_inserted).toBe(1);
     // The new ids come from the sequences, so they land ABOVE the
@@ -564,7 +622,7 @@ run('discovery manifests + import executor against the disposable database', () 
     await owner.$executeRawUnsafe('ALTER SEQUENCE beers_id_seq RENAME TO beers_id_seq_broken');
     try {
       const failure = await runImport(
-        loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: fetchImage() },
+        loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
       ).catch((e) => e);
       expect(failure).toBeInstanceOf(ImportRefusedError);
       expect(failure.check).toBe('sequence_alignment');
@@ -625,7 +683,7 @@ run('discovery manifests + import executor against the disposable database', () 
     };
     const beersBefore = await beerCount();
     const importPromise = runImport(
-      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: gatedFetch },
+      loader, { manifestId: built.id, expectedSha256: built.sha256 }, { fetchImage: gatedFetch, uploadImage: stubUploadImage },
     );
     await fetchGate;
     // A normal catalog write (a new beer under an existing brewery)
@@ -655,5 +713,56 @@ run('discovery manifests + import executor against the disposable database', () 
     });
     expect(landed.id).toBeGreaterThan(0);
     await owner.beers.delete({ where: { id: landed.id } });
+  });
+
+  it('s3: an uploader failure aborts the import with image_upload and writes no catalog rows', async () => {
+    const candidate = await takeCandidate();
+    await driveToSelected(candidate);
+    await approveImageViaStub(candidate, `/img/s3fail-${candidate.id}.png`);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const beersBefore = await beerCount();
+    const imagesBefore = await imageCount();
+    const failingUploadImage = async () => {
+      throw new Error('simulated S3 failure: AccessDenied');
+    };
+    const failure = await runImport(
+      loader, { manifestId: built.id, expectedSha256: built.sha256 },
+      { fetchImage: fetchImage(), uploadImage: failingUploadImage },
+    ).catch((e) => e);
+    expect(failure).toBeInstanceOf(ImportRefusedError);
+    expect(failure.check).toBe('image_upload');
+    expect(failure.message).toContain('upload failed');
+    expect(await beerCount()).toBe(beersBefore);
+    expect(await imageCount()).toBe(imagesBefore);
+    const stored = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
+    expect(stored?.status).toBe('approved');
+    const after = await owner.discovery_candidates.findUnique({ where: { id: candidate.id } });
+    expect(after?.review_status).toBe('selected');
+    await cleanupScenario(built.id, [candidate.id]);
+  });
+
+  it('s3: a manifest with images but no configured uploader is refused (image_upload), nothing written', async () => {
+    const candidate = await takeCandidate();
+    await driveToSelected(candidate);
+    await approveImageViaStub(candidate, `/img/s3cfg-${candidate.id}.png`);
+    const built = await buildManifest();
+    await approveManifest(built);
+    const beersBefore = await beerCount();
+    const imagesBefore = await imageCount();
+    // Deliberately NO uploadImage in deps: the executor must refuse
+    // rather than fall back to storing the source URL as storage_key.
+    const failure = await runImport(
+      loader, { manifestId: built.id, expectedSha256: built.sha256 },
+      { fetchImage: fetchImage() },
+    ).catch((e) => e);
+    expect(failure).toBeInstanceOf(ImportRefusedError);
+    expect(failure.check).toBe('image_upload');
+    expect(failure.message).toContain('ADMIN_IMAGE_BUCKET');
+    expect(await beerCount()).toBe(beersBefore);
+    expect(await imageCount()).toBe(imagesBefore);
+    const stored = await owner.discovery_import_manifests.findUnique({ where: { id: built.id } });
+    expect(stored?.status).toBe('approved');
+    await cleanupScenario(built.id, [candidate.id]);
   });
 });
