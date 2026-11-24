@@ -1,5 +1,6 @@
-import { apiGet, apiGetBlobUrl, apiPost, QueryParams } from "./client";
+import { ApiError, apiGet, apiGetBlobUrl, apiPost, QueryParams } from "./client";
 import {
+  Beer,
   BeerDetail,
   DiscoveryBatch,
   DiscoveryCandidate,
@@ -9,31 +10,47 @@ import {
   DiscoveryImageFetch,
   DiscoveryManifest,
   DiscoveryManifestDetail,
+  DiscoveryManifestRecord,
   ListResponse,
 } from "./types";
 
 // Typed review client for the catalog discovery workflow
-// (docs/DISCOVERY_REVIEW_API_CONTRACT.md). Every operation maps to an
-// endpoint that EXISTS in the admin API today, verified against the
-// server route modules named in the contract doc, EXCEPT the two
-// operations marked PROPOSED: they are typed here so the UI can be
-// built and tested against the interface, and their HTTP
-// implementation throws NotYetAvailableError until Codex ships the
-// backend. UI code calls only this interface, never raw fetch.
+// (docs/DISCOVERY_REVIEW_API_CONTRACT.md). Operations map to one of
+// two contract sources, and the distinction matters:
+//
+// - Section A endpoints EXIST in the admin API on master, verified
+//   against the server route modules named in the contract doc.
+// - The review-intent endpoints (section B1) are a contract supplied
+//   by Frank and implemented in Codex's LOCAL backend; they are NOT
+//   deployed or merged yet. The UI integrates against them now, and
+//   until deployment their calls fail with the server's own error,
+//   which this client preserves (see below).
+//
+// Server errors are NEVER collapsed into a generic failure: apiGet /
+// apiPost throw ApiError carrying the server's status and message,
+// and this client lets them propagate untouched, so the UI can show
+// the server's exact words (and can tell a 409 revision conflict
+// apart from any other failure).
+//
+// UI code calls only this interface, never raw fetch.
 
 export const REVIEW_API_CONTRACT_DOC = "docs/DISCOVERY_REVIEW_API_CONTRACT.md";
 
-// Thrown by operations whose backend does not exist yet. The UI
-// catches this exact type to render the pending-API state; any other
-// error is a real failure and is surfaced as one.
+// Thrown by operations whose backend capability is genuinely absent.
+// No current client operation throws it: field editing is expressed
+// through the review-intent contract (B1), and the capabilities that
+// remain absent (an audited image_url refetch/invalidation flow; the
+// image-only IMPORT path in the executor) have no UI operation yet.
+// The type is retained so a future operation can mark itself pending
+// in exactly the same way, and the UI can render the pending state.
 export class NotYetAvailableError extends Error {
   capability: string;
 
   constructor(capability: string) {
     super(
-      `${capability} is not available yet: the backend endpoint is ` +
-        `proposed in ${REVIEW_API_CONTRACT_DOC} and has not been ` +
-        `implemented. No data was changed.`
+      `${capability} is not available yet: the backend capability is ` +
+        `documented as pending in ${REVIEW_API_CONTRACT_DOC}. ` +
+        `No data was changed.`
     );
     this.name = "NotYetAvailableError";
     this.capability = capability;
@@ -61,43 +78,70 @@ export interface ImageDecisionInput {
   image_sha256?: string;
 }
 
-// The staged candidate fields a reviewer may propose edits to. The
-// set mirrors the fields the candidate detail endpoint exposes for
-// review; anything else on the candidate is provenance or state and
-// is not editable.
+// --- Review intent (contract section B1) --------------------------------
+// A review intent records WHAT should be imported for a candidate:
+// a new beer built from reviewer-confirmed field values, or an image
+// for one existing catalog beer the reviewer explicitly chose. It is
+// an audited snapshot on the server (the original source payload is
+// retained), and it is DISTINCT from the select / hold / reject
+// decision endpoints: saving an intent does not select the
+// candidate, and selecting a candidate does not create an intent.
+
+// The beer payload of a new_beer intent. ALL seven fields are always
+// supplied; optional fields that are missing are null, never omitted.
+export interface ReviewIntentBeer {
+  name: string;
+  brewery_name: string;
+  style: string | null;
+  abv: number | null;
+  ibu: number | null;
+  barcode: string | null;
+  description: string | null;
+}
+
+export type ReviewIntent =
+  | { mode: "image_only"; target_beer_id: number }
+  | { mode: "new_beer"; beer: ReviewIntentBeer };
+
+// One saved intent as returned by GET/POST review-intent. `id` is
+// the revision token: replacing the intent requires sending it back
+// as expected_revision, and a stale one is refused with 409.
+export interface ReviewIntentRecord {
+  id: number;
+  candidate_id: number;
+  intent: ReviewIntent;
+  created_at: string;
+}
+
+// True when an error is the review-intent revision conflict (HTTP
+// 409): the saved intent changed since the caller loaded it, so the
+// UI must reload rather than overwrite.
+export const isReviewIntentConflict = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 409;
+
+// The staged candidate fields shown in the review form. Every field
+// except image_url feeds the new_beer intent payload; image_url is
+// displayed read-only because changing it is not supported by the
+// backend (it needs a separate audited refetch and invalidation
+// design, and an approved hash never carries over to a new URL), so
+// it is excluded from the payload and from the diff.
 export type CandidateEditableField =
   | "name"
   | "brewery_name"
   | "abv"
   | "style"
+  | "ibu"
   | "barcode"
+  | "description"
   | "image_url";
 
-// One proposed field change: the staged (original) value and the
-// reviewer's proposed value, both as display strings. The proposed
-// PATCH contract (see the contract doc) carries exactly this pair per
-// field so the server can audit original vs proposed.
+// One field whose form value differs from the staged original, as
+// display strings, in REVIEW_FIELDS order. Used for the changed-
+// fields summary only; the intent payload is built separately.
 export interface CandidateFieldEdit {
   field: CandidateEditableField;
   original: string;
   proposed: string;
-}
-
-export interface BatchComposition {
-  batchId: number;
-  // The batch's full staged record count (from GET /discovery/batches),
-  // never a page size or a sample.
-  totalRecords: number | null;
-  selectedCount: number;
-  // Selected candidates with no catalog match: these become new
-  // beers when imported through a manifest.
-  newBeerCount: number;
-  // Selected candidates that matched an existing catalog beer. Today
-  // they cannot be imported at all (the manifest builder refuses
-  // them with already_in_catalog); they are listed so the reviewer
-  // can see them, never counted as part of a manifest.
-  imageOnly: DiscoveryCandidate[];
-  imageOnlyCount: number;
 }
 
 export interface DiscoveryReviewClient {
@@ -127,6 +171,11 @@ export interface DiscoveryReviewClient {
   // The existing catalog beer a candidate matched, via the catalog
   // endpoint the admin UI already uses (GET /catalog/beers/:id).
   getCatalogBeer(beerId: number): Promise<BeerDetail>;
+  // Catalog beer search for the image-only target picker, via the
+  // existing list endpoint (GET /catalog/beers?q=..., a
+  // case-insensitive name contains match, verified in
+  // server/src/routes/catalog.ts).
+  searchCatalogBeers(query: string): Promise<ListResponse<Beer>>;
   listBatches(): Promise<{ results: DiscoveryBatch[] }>;
   listBatchCandidates(
     batchId: number,
@@ -135,19 +184,21 @@ export interface DiscoveryReviewClient {
   getManifest(id: string): Promise<DiscoveryManifestDetail>;
   approveManifest(id: string, sha256: string): Promise<DiscoveryManifest>;
 
-  // --- Proposed endpoints (contract doc section B; NOT implemented) ---
-  // Reviewer-scoped update of staged candidate fields before a
-  // selection decision. Throws NotYetAvailableError until Codex ships
-  // PATCH /discovery/candidates/:id/fields.
-  saveFieldEdits(
+  // --- Review intent (contract doc section B1) ---
+  // Frank-supplied contract, implemented in Codex's local backend,
+  // NOT deployed or merged yet. GET returns the saved intent record
+  // or null. POST saves (or replaces) the intent: expectedRevision
+  // is the last returned intent id, or null when no intent exists;
+  // a stale revision is refused 409 and the server's error (status +
+  // message) reaches the caller untouched.
+  getReviewIntent(
+    candidateId: number
+  ): Promise<ReviewIntentRecord | null>;
+  saveReviewIntent(
     candidateId: number,
-    edits: CandidateFieldEdit[]
-  ): Promise<DiscoveryCandidateDetail>;
-  // A manifest containing image_only entries for the batch's selected
-  // candidates that matched an existing catalog beer. Throws
-  // NotYetAvailableError until the manifest format and builder
-  // support the image_only entry kind.
-  requestImageOnlyManifest(batchId: number): Promise<DiscoveryManifestDetail>;
+    expectedRevision: number | null,
+    intent: ReviewIntent
+  ): Promise<ReviewIntentRecord>;
 }
 
 export const httpDiscoveryReviewClient: DiscoveryReviewClient = {
@@ -182,6 +233,8 @@ export const httpDiscoveryReviewClient: DiscoveryReviewClient = {
     return apiPost(`/discovery/candidates/${candidateId}/image-decisions`, body);
   },
   getCatalogBeer: (beerId) => apiGet(`/catalog/beers/${beerId}`),
+  searchCatalogBeers: (query) =>
+    apiGet(`/catalog/beers`, { q: query, page_size: 20 }),
   listBatches: () => apiGet(`/discovery/batches`),
   listBatchCandidates: (batchId, params) =>
     apiGet(`/discovery/batches/${batchId}/candidates`, params),
@@ -189,34 +242,41 @@ export const httpDiscoveryReviewClient: DiscoveryReviewClient = {
   approveManifest: (id, sha256) =>
     apiPost(`/discovery/manifests/${id}/approve`, { sha256 }),
 
-  saveFieldEdits: () => {
-    throw new NotYetAvailableError("Candidate field edits");
-  },
-  requestImageOnlyManifest: () => {
-    throw new NotYetAvailableError("Image-only manifest entries");
-  },
+  getReviewIntent: (candidateId) =>
+    apiGet(`/discovery/candidates/${candidateId}/review-intent`),
+  saveReviewIntent: (candidateId, expectedRevision, intent) =>
+    apiPost(`/discovery/candidates/${candidateId}/review-intent`, {
+      expected_revision: expectedRevision,
+      intent,
+    }),
 };
 
 // --- Field review model -------------------------------------------------
-// Pure helpers shared by the field-review UI and its tests. Values
+// Pure helpers shared by the review-intent UI and its tests. Values
 // are handled as display strings end to end so a staged value is
 // never silently reformatted: String(3.2123353678124) keeps every
 // staged digit, and a proposed value is exactly what the reviewer
-// typed.
+// typed. Conversion to the typed intent payload happens in exactly
+// one place (buildNewBeerIntent).
 
 export interface ReviewFieldDef {
   field: CandidateEditableField;
   label: string;
-  kind: "text" | "abv";
+  kind: "text" | "abv" | "ibu";
+  // image_url is shown for provenance but is not editable and never
+  // enters the intent payload.
+  editable: boolean;
 }
 
 export const REVIEW_FIELDS: ReviewFieldDef[] = [
-  { field: "name", label: "Name", kind: "text" },
-  { field: "brewery_name", label: "Brewery", kind: "text" },
-  { field: "abv", label: "ABV", kind: "abv" },
-  { field: "style", label: "Style", kind: "text" },
-  { field: "barcode", label: "Barcode", kind: "text" },
-  { field: "image_url", label: "Image URL", kind: "text" },
+  { field: "name", label: "Name", kind: "text", editable: true },
+  { field: "brewery_name", label: "Brewery", kind: "text", editable: true },
+  { field: "abv", label: "ABV", kind: "abv", editable: true },
+  { field: "style", label: "Style", kind: "text", editable: true },
+  { field: "ibu", label: "IBU", kind: "ibu", editable: true },
+  { field: "barcode", label: "Barcode", kind: "text", editable: true },
+  { field: "description", label: "Description", kind: "text", editable: true },
+  { field: "image_url", label: "Image URL", kind: "text", editable: false },
 ];
 
 export const originalFieldValue = (
@@ -231,7 +291,8 @@ export interface FieldIssue {
   field: CandidateEditableField;
   // error: blocks saving. warning: never blocks and never rewrites
   // the value; it flags the field for the human (e.g. a staged ABV
-  // with more than 2 decimal places).
+  // with more than 2 decimal places). A warned value may still be
+  // saved unchanged: that is the explicit accept-as-staged choice.
   level: "error" | "warning";
   message: string;
 }
@@ -257,11 +318,13 @@ export const validateFieldValue = (
     if (!Number.isFinite(parsed)) {
       return { field, level: "error", message: "ABV must be a number." };
     }
-    if (parsed < 0 || parsed > 20) {
+    // The backend accepts ABV from 0 to 100; there is no lower
+    // product-specific ceiling in the UI.
+    if (parsed < 0 || parsed > 100) {
       return {
         field,
         level: "error",
-        message: "ABV must be between 0 and 20.",
+        message: "ABV must be between 0 and 100.",
       };
     }
     if (decimalPlaces(value) > 2) {
@@ -275,12 +338,17 @@ export const validateFieldValue = (
       };
     }
   }
+  if (field === "ibu" && value !== "") {
+    if (!Number.isFinite(Number(value))) {
+      return { field, level: "error", message: "IBU must be a number." };
+    }
+  }
   return null;
 };
 
 // The issue a STAGED value already carries before any edit (today
-// only the ABV precision case): shown in read mode so the reviewer
-// sees the flag without entering edit mode.
+// only the ABV precision case): shown on the form so the reviewer
+// sees the flag without changing anything.
 export const stagedFieldIssue = (
   candidate: DiscoveryCandidateDetail,
   field: CandidateEditableField
@@ -292,14 +360,15 @@ export const stagedFieldIssue = (
   return issue && issue.level === "warning" ? issue : null;
 };
 
-// Only fields whose proposed value differs from the staged original,
-// in REVIEW_FIELDS order.
+// Only editable fields whose form value differs from the staged
+// original, in REVIEW_FIELDS order. image_url can never appear here.
 export const diffCandidateFields = (
   candidate: DiscoveryCandidateDetail,
   proposed: Partial<Record<CandidateEditableField, string>>
 ): CandidateFieldEdit[] => {
   const edits: CandidateFieldEdit[] = [];
   for (const def of REVIEW_FIELDS) {
+    if (!def.editable) continue;
     const next = proposed[def.field];
     if (next === undefined) continue;
     const original = originalFieldValue(candidate, def.field);
@@ -317,43 +386,78 @@ export const validateCandidateEdits = (
     .map((edit) => validateFieldValue(edit.field, edit.proposed))
     .filter((issue): issue is FieldIssue => issue !== null);
 
-// --- Batch composition --------------------------------------------------
-// Counts a batch's selected candidates into new beers vs image-only
-// by paging the EXISTING candidates list endpoint with its
-// review_status filter (the batches endpoint exposes no matched-beer
-// split). Pages are followed until the server-reported total is
-// covered, so the counts describe the complete batch, never a page.
-
-export const getBatchComposition = async (
-  client: DiscoveryReviewClient,
-  batchId: number
-): Promise<BatchComposition> => {
-  const batches = await client.listBatches();
-  const batch = Array.isArray(batches?.results)
-    ? batches.results.find((b) => b.id === batchId)
-    : undefined;
-
-  const selected: DiscoveryCandidate[] = [];
-  let page = 1;
-  for (;;) {
-    const resp = await client.listBatchCandidates(batchId, {
-      review_status: "selected",
-      page,
-      page_size: 100,
-    });
-    const rows = Array.isArray(resp?.results) ? resp.results : [];
-    selected.push(...rows);
-    const total = resp?.pagination?.total_results ?? selected.length;
-    if (rows.length === 0 || selected.length >= total) break;
-    page += 1;
-  }
-
-  const imageOnly = selected.filter((c) => c.matched_beer_id !== null);
+// Builds the new_beer intent payload from the form's display
+// strings. The contract shape is exact: all seven beer fields are
+// always present, optional fields that are empty become null (never
+// omitted), numeric fields become numbers, and image_url is NOT
+// part of the payload. Callers validate first; name and brewery are
+// sent trimmed.
+export const buildNewBeerIntent = (
+  proposed: Partial<Record<CandidateEditableField, string>>
+): ReviewIntent => {
+  const text = (field: CandidateEditableField): string =>
+    (proposed[field] ?? "").trim();
+  const optionalText = (field: CandidateEditableField): string | null => {
+    const value = text(field);
+    return value === "" ? null : value;
+  };
+  const optionalNumber = (field: CandidateEditableField): number | null => {
+    const value = text(field);
+    return value === "" ? null : Number(value);
+  };
   return {
-    batchId,
-    totalRecords: batch ? batch.record_count : null,
-    selectedCount: selected.length,
-    newBeerCount: selected.length - imageOnly.length,
+    mode: "new_beer",
+    beer: {
+      name: text("name"),
+      brewery_name: text("brewery_name"),
+      style: optionalText("style"),
+      abv: optionalNumber("abv"),
+      ibu: optionalNumber("ibu"),
+      barcode: optionalText("barcode"),
+      description: optionalText("description"),
+    },
+  };
+};
+
+// The form's starting values when a saved new_beer intent exists:
+// the intent's beer snapshot (it is the current proposed state),
+// rendered back as display strings. Fields the snapshot carries as
+// null start empty.
+export const proposedFromIntentBeer = (
+  beer: ReviewIntentBeer
+): Partial<Record<CandidateEditableField, string>> => ({
+  name: beer.name,
+  brewery_name: beer.brewery_name,
+  style: beer.style ?? "",
+  abv: beer.abv === null ? "" : String(beer.abv),
+  ibu: beer.ibu === null ? "" : String(beer.ibu),
+  barcode: beer.barcode ?? "",
+  description: beer.description ?? "",
+});
+
+// --- Manifest composition ----------------------------------------------
+// Composition is derived from the MANIFEST's own records, never from
+// candidate matching: a version 2 record with kind "image_only" is
+// an image-only import (it carries target_beer_id and an image); a
+// record with kind "new_beer", and every version 1 record (no kind),
+// is a new-beer import. Pure and synchronous: the records arrive
+// with the manifest detail the page already fetched.
+
+export interface ManifestComposition {
+  totalRecords: number;
+  newBeerCount: number;
+  imageOnly: DiscoveryManifestRecord[];
+  imageOnlyCount: number;
+}
+
+export const getManifestComposition = (
+  manifest: DiscoveryManifestDetail
+): ManifestComposition => {
+  const records = Array.isArray(manifest.records) ? manifest.records : [];
+  const imageOnly = records.filter((r) => r.kind === "image_only");
+  return {
+    totalRecords: records.length,
+    newBeerCount: records.length - imageOnly.length,
     imageOnly,
     imageOnlyCount: imageOnly.length,
   };

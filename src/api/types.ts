@@ -573,8 +573,13 @@ export interface DiscoveryManifest {
 // One manifest record on the detail response: the candidate, its
 // build-time resolution (existing brewery/style by id, or a brewery
 // the import will create), and the approved Phase 4 image decision
-// bound to the record, if any.
+// bound to the record, if any. Version 2 records carry a `kind`:
+// "image_only" entries import an image for the EXISTING catalog beer
+// named by target_beer_id and create no beer; "new_beer" entries, and
+// version 1 records with no kind at all, are new-beer imports.
 export interface DiscoveryManifestRecord {
+  kind?: string | null;
+  target_beer_id?: number | null;
   candidate_id: number;
   candidate_key: string;
   payload_sha256: string;
