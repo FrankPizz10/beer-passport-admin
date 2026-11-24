@@ -392,6 +392,13 @@ const defaultTransport = (args: {
         port: url.port ? Number(url.port) : isHttps ? 443 : 80,
         path: `${url.pathname}${url.search}`,
         method: 'GET',
+        // The fetch is already pinned to one address that we resolved
+        // and validated. Node 20+ enables autoSelectFamily by default;
+        // that mode calls custom lookup with `all: true` and expects an
+        // address array, while this callback deliberately returns the
+        // single validated address. Keep the scalar lookup contract so
+        // Node cannot re-resolve or try any unvalidated address.
+        autoSelectFamily: false,
         headers: {
           'User-Agent': 'BeerPassportAdmin/1.0 (discovery image fetch)',
           Accept: 'image/*',

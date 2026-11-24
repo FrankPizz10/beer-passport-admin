@@ -1,12 +1,17 @@
 // SSRF battery for the restricted discovery image fetcher
 // (src/discoveryImageFetch.ts). Everything runs against injected
-// seams: no network, no DNS. The battery covers every documented
-// fetch restriction in decision 006 revision 2 / issues/001
+// seams: no external network, no DNS. A loopback regression test also
+// exercises the real pinned transport against a local stub server. The
+// battery covers every documented fetch restriction in decision 006
+// revision 2 / issues/001
 // section 4, plus success cases per format and the address
 // validator's range table.
 import * as crypto from 'crypto';
+import * as http from 'http';
+import { AddressInfo } from 'net';
 import {
   createRestrictedFetcher,
+  defaultSeams,
   parseFetchUrl,
   FetchRefusedError,
   blockedAddressReason,
@@ -358,6 +363,45 @@ describe('restricted fetcher: success cases', () => {
     if (result.outcome !== 'success') return;
     expect(result.image.finalUrl).toBe('https://origin.example/new.png');
     expect(result.image.redirects).toBe(1);
+  });
+});
+
+describe('default transport runtime compatibility', () => {
+  it('uses the single validated address with Node family autoselection disabled', async () => {
+    const bytes = pngBytes(21, 34);
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end(bytes);
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const port = (server.address() as AddressInfo).port;
+    const fetchImage = createRestrictedFetcher({
+      resolve: async (hostname) => {
+        expect(hostname).toBe('images.test');
+        return ['127.0.0.1'];
+      },
+      transport: defaultSeams.transport,
+      // Test-only exception for this local stub; production still uses
+      // the strict address validator from defaultSeams.
+      blockedReason: () => null,
+    });
+
+    try {
+      const result = await fetchImage(`http://images.test:${port}/label.png`);
+      expect(result.outcome).toBe('success');
+      if (result.outcome === 'success') {
+        expect(result.image.bytes).toEqual(bytes);
+        expect(result.image.width).toBe(21);
+        expect(result.image.height).toBe(34);
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve());
+      });
+    }
   });
 });
 
