@@ -535,3 +535,93 @@ export interface DiscoveryImageDecision {
   decided_by: { id: number; user_name: string } | null;
   decided_at: string;
 }
+
+// --- Discovery import manifests (Phase 5) ---
+
+// Per-table catalog fingerprint recorded when a manifest was built:
+// row count + MD5 over the table's content-bearing columns in id
+// order. The import executor refuses when the live fingerprint has
+// moved (decision 006 check 5).
+export interface DiscoveryCatalogFingerprint {
+  beers: { count: number; md5: string };
+  breweries: { count: number; md5: string };
+  beverage_images: { count: number; md5: string };
+}
+
+// One row of GET /admin-api/v1/discovery/manifests. can_approve is
+// computed SERVER-side from the manifest approver allowlist for the
+// signed-in account; the client only uses it to show or hide the
+// approve control (the API enforces the gate regardless). No
+// Firebase UID is ever present.
+export interface DiscoveryManifest {
+  id: string;
+  batch_id: number;
+  batch_slug: string | null;
+  record_count: number;
+  status: "draft" | "approved" | "imported" | "void" | string;
+  sha256: string;
+  sha256_short: string | null;
+  built_by: { id: number; user_name: string } | null;
+  approved_by: { id: number; user_name: string } | null;
+  approved_at: string | null;
+  approved_sha256: string | null;
+  imported_at: string | null;
+  created_at: string;
+  can_approve: boolean;
+}
+
+// One manifest record on the detail response: the candidate, its
+// build-time resolution (existing brewery/style by id, or a brewery
+// the import will create), and the approved Phase 4 image decision
+// bound to the record, if any.
+export interface DiscoveryManifestRecord {
+  candidate_id: number;
+  candidate_key: string;
+  payload_sha256: string;
+  selection_decision_id: number;
+  beer_name: string | null;
+  brewery_name: string | null;
+  brewery: { mode: "existing"; brewery_id: number } | { mode: "new" } | null;
+  style:
+    | { mode: "existing"; style_id: number; category_id: number | null }
+    | { mode: "none" }
+    | null;
+  image: {
+    decision_id: number;
+    fetch_id: number;
+    ref: string;
+    sha256: string;
+  } | null;
+}
+
+// One audit row of a manifest's lifecycle (build / approve / void /
+// import). The actor is users id + user_name only; import events are
+// recorded by the operator executor and carry no actor.
+export interface DiscoveryManifestEvent {
+  id: number;
+  manifest_id: string;
+  action: string;
+  from_status: string | null;
+  to_status: string | null;
+  note: string | null;
+  actor: { id: number; user_name: string } | null;
+  created_at: string;
+}
+
+// Response of GET /admin-api/v1/discovery/manifests/:id.
+export interface DiscoveryManifestDetail extends DiscoveryManifest {
+  bundle_sha256: string | null;
+  catalog_fingerprint: DiscoveryCatalogFingerprint;
+  records: DiscoveryManifestRecord[];
+  events: DiscoveryManifestEvent[];
+}
+
+// One blocking candidate in a 422 manifest-build refusal
+// (POST /discovery/batches/:id/manifests): the candidate and every
+// eligibility reason it failed. A manifest is never built while any
+// selected candidate is blocked.
+export interface DiscoveryManifestBlocker {
+  candidate_id: number;
+  candidate_key: string;
+  reasons: string[];
+}
