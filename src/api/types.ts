@@ -397,7 +397,65 @@ export interface DiscoveryPair {
   method: string | null;
   score: number | null;
   status: string;
-  rival: { id: number; name: string; brewery_name: string | null } | null;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string | null;
+  rival: {
+    id: number;
+    name: string;
+    brewery_name: string | null;
+    style: string | null;
+    abv: number | null;
+    barcode: string | null;
+    source: string;
+    origin_bucket: string | null;
+    image_status_normalized: string | null;
+    review_status: string;
+  } | null;
+}
+
+// One audit row from GET /admin-api/v1/discovery/candidates/:id/decisions
+// or /discovery/batches/:id/decisions. decision uses the issues/001
+// action vocabulary (select / hold / reject / unhold for candidates,
+// mark_duplicate / mark_distinct for pairs). The decider is the users
+// id + user_name only; the API never sends the Firebase UID.
+export interface DiscoveryDecision {
+  id: number;
+  candidate_id: number | null;
+  pair_id: number | null;
+  decision: string;
+  from_status: string | null;
+  to_status: string | null;
+  reason: string | null;
+  note: string | null;
+  decided_by: { id: number; user_name: string } | null;
+  created_at: string;
+}
+
+// One side of the side-by-side pair view (GET /discovery/pairs/:id):
+// the candidate list-row fields plus provenance identifiers.
+export interface DiscoveryPairSide extends DiscoveryCandidate {
+  source_record_id: string;
+  source_url: string | null;
+}
+
+// Response of GET /admin-api/v1/discovery/pairs/:id: the pair plus
+// both sides serialized (rival is null when it lives in another batch
+// and is named by external_ref).
+export interface DiscoveryPairDetail {
+  id: number;
+  batch_id: number;
+  candidate_id: number;
+  candidate_id_b: number | null;
+  external_ref: string | null;
+  comparison: string | null;
+  method: string | null;
+  score: number | null;
+  status: string;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string | null;
+  created_at: string;
+  candidate: DiscoveryPairSide | null;
+  rival: DiscoveryPairSide | null;
 }
 
 // Response of GET /admin-api/v1/discovery/candidates/:id: the list-row
@@ -421,8 +479,149 @@ export interface DiscoveryCandidateDetail extends DiscoveryCandidate {
   image_height: number | null;
   hold_note: string | null;
   duplicate_of_candidate_id: number | null;
+  // Current hash-bound image decision state (Phase 4): the decision
+  // (approved / rejected), the fetch it binds to, and when it was
+  // recorded. All null until an image decision exists.
+  image_decision: string | null;
+  image_decision_fetch_id: number | null;
+  image_decision_at: string | null;
   created_at: string;
   updated_at: string;
   batch: { id: number; slug: string; title: string | null };
   pairs: DiscoveryPair[];
+}
+
+// One row of GET /admin-api/v1/discovery/candidates/:id/image-fetches:
+// a single server-side fetch attempt of the candidate's staged image.
+// outcome is 'success' or a failure class (dns_blocked,
+// redirect_blocked, downgrade_blocked, too_large, not_image,
+// magic_mismatch, unreachable, timeout). sha256 / content_type /
+// dimensions are set only on success; content_type is the VERIFIED
+// type from the magic bytes. decision is the fetch's image decision
+// when one exists (a fetch can be decided exactly once).
+export interface DiscoveryImageFetch {
+  id: number;
+  candidate_id: number;
+  image_ref: string;
+  sha256: string | null;
+  content_type: string | null;
+  byte_size: number | null;
+  width: number | null;
+  height: number | null;
+  outcome: string;
+  outcome_detail: string | null;
+  fetched_by: { id: number; user_name: string } | null;
+  fetched_at: string;
+  decision: { id: number; decision: string; decided_at: string } | null;
+}
+
+// One row of GET /admin-api/v1/discovery/candidates/:id/image-decisions:
+// the append-only audit of hash-bound image decisions. image_sha256
+// is the hash of the exact bytes that were previewed from the named
+// fetch; the decider is users id + user_name only.
+export interface DiscoveryImageDecision {
+  id: number;
+  candidate_id: number;
+  fetch_id: number;
+  image_ref: string;
+  image_sha256: string;
+  image_content_type: string | null;
+  image_width: number | null;
+  image_height: number | null;
+  image_source: string | null;
+  image_license: string | null;
+  decision: string;
+  note: string | null;
+  decided_by: { id: number; user_name: string } | null;
+  decided_at: string;
+}
+
+// --- Discovery import manifests (Phase 5) ---
+
+// Per-table catalog fingerprint recorded when a manifest was built:
+// row count + MD5 over the table's content-bearing columns in id
+// order. The import executor refuses when the live fingerprint has
+// moved (decision 006 check 5).
+export interface DiscoveryCatalogFingerprint {
+  beers: { count: number; md5: string };
+  breweries: { count: number; md5: string };
+  beverage_images: { count: number; md5: string };
+}
+
+// One row of GET /admin-api/v1/discovery/manifests. can_approve is
+// computed SERVER-side from the manifest approver allowlist for the
+// signed-in account; the client only uses it to show or hide the
+// approve control (the API enforces the gate regardless). No
+// Firebase UID is ever present.
+export interface DiscoveryManifest {
+  id: string;
+  batch_id: number;
+  batch_slug: string | null;
+  record_count: number;
+  status: "draft" | "approved" | "imported" | "void" | string;
+  sha256: string;
+  sha256_short: string | null;
+  built_by: { id: number; user_name: string } | null;
+  approved_by: { id: number; user_name: string } | null;
+  approved_at: string | null;
+  approved_sha256: string | null;
+  imported_at: string | null;
+  created_at: string;
+  can_approve: boolean;
+}
+
+// One manifest record on the detail response: the candidate, its
+// build-time resolution (existing brewery/style by id, or a brewery
+// the import will create), and the approved Phase 4 image decision
+// bound to the record, if any.
+export interface DiscoveryManifestRecord {
+  candidate_id: number;
+  candidate_key: string;
+  payload_sha256: string;
+  selection_decision_id: number;
+  beer_name: string | null;
+  brewery_name: string | null;
+  brewery: { mode: "existing"; brewery_id: number } | { mode: "new" } | null;
+  style:
+    | { mode: "existing"; style_id: number; category_id: number | null }
+    | { mode: "none" }
+    | null;
+  image: {
+    decision_id: number;
+    fetch_id: number;
+    ref: string;
+    sha256: string;
+  } | null;
+}
+
+// One audit row of a manifest's lifecycle (build / approve / void /
+// import). The actor is users id + user_name only; import events are
+// recorded by the operator executor and carry no actor.
+export interface DiscoveryManifestEvent {
+  id: number;
+  manifest_id: string;
+  action: string;
+  from_status: string | null;
+  to_status: string | null;
+  note: string | null;
+  actor: { id: number; user_name: string } | null;
+  created_at: string;
+}
+
+// Response of GET /admin-api/v1/discovery/manifests/:id.
+export interface DiscoveryManifestDetail extends DiscoveryManifest {
+  bundle_sha256: string | null;
+  catalog_fingerprint: DiscoveryCatalogFingerprint;
+  records: DiscoveryManifestRecord[];
+  events: DiscoveryManifestEvent[];
+}
+
+// One blocking candidate in a 422 manifest-build refusal
+// (POST /discovery/batches/:id/manifests): the candidate and every
+// eligibility reason it failed. A manifest is never built while any
+// selected candidate is blocked.
+export interface DiscoveryManifestBlocker {
+  candidate_id: number;
+  candidate_key: string;
+  reasons: string[];
 }

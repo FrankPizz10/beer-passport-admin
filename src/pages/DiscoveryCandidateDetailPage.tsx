@@ -1,10 +1,30 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { apiGet } from "../api/client";
+import { apiGet, apiPost, ApiError } from "../api/client";
 import { useApiData } from "../api/useApiData";
-import { DiscoveryCandidateDetail } from "../api/types";
+import {
+  DiscoveryCandidateDetail,
+  DiscoveryDecision,
+  ListResponse,
+} from "../api/types";
 import { ErrorState, Loading } from "../components/States";
 import { fmtBool, fmtDate, fmtVal } from "../components/helpers";
+import DiscoveryImageReviewPanel from "./DiscoveryImageReviewPanel";
+
+// The hold-reason vocabulary (issues/001); the API requires one for
+// hold and reject decisions and refuses the decision without it.
+const HOLD_REASONS = [
+  "missing_brewery",
+  "origin_uncertain",
+  "market_fit_uncertain",
+  "duplicate_unresolved",
+  "image_unverified",
+  "metadata_incomplete",
+  "out_of_scope",
+  "other",
+];
+
+const FINAL_STATUSES = ["rejected", "superseded"];
 
 const DiscoveryCandidateDetailPage: React.FC = () => {
   const { id } = useParams();
@@ -12,10 +32,54 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
     () => apiGet<DiscoveryCandidateDetail>(`/discovery/candidates/${id}`),
     [id]
   );
+  const [historyTick, setHistoryTick] = useState(0);
+  const { data: history } = useApiData(
+    () =>
+      apiGet<ListResponse<DiscoveryDecision>>(
+        `/discovery/candidates/${id}/decisions`,
+        { page_size: 100 }
+      ),
+    [id, historyTick]
+  );
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error.message} onRetry={reload} />;
   if (!data)
     return <ErrorState message="Discovery candidate not found" onRetry={reload} />;
+
+  const status = data.review_status;
+  const isFinal = FINAL_STATUSES.includes(status);
+  const pendingPairs = (data.pairs || []).filter((p) => p.status === "pending");
+  const selectBlockedByPair = status === "pending" && pendingPairs.length > 0;
+
+  const decide = async (decision: string) => {
+    if ((decision === "hold" || decision === "reject") && !reason) {
+      setActionError(`Choose a reason before recording a ${decision} decision.`);
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      const body: Record<string, string> = { decision };
+      if (reason) body.reason = reason;
+      if (note.trim()) body.note = note.trim();
+      await apiPost(`/discovery/candidates/${id}/decide`, body);
+      setReason("");
+      setNote("");
+      setHistoryTick((t) => t + 1);
+      reload();
+    } catch (e) {
+      setActionError(
+        e instanceof ApiError ? e.message : "The decision could not be recorded."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const dimensions =
     data.image_width !== null && data.image_width !== undefined &&
@@ -86,6 +150,8 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">Image Page URL</span>{data.image_page_url ? <a href={data.image_page_url}>{data.image_page_url}</a> : "None"}</div>
       </div>
 
+      <DiscoveryImageReviewPanel candidate={data} onDecisionRecorded={reload} />
+
       <h2>Review State</h2>
       <div className="detail-grid">
         <div><span className="field-label">Review Status</span>{data.review_status}</div>
@@ -95,6 +161,118 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
         <div><span className="field-label">Matched Beer ID</span>{fmtVal(data.matched_beer_id)}</div>
         <div><span className="field-label">Duplicate Of Candidate ID</span>{fmtVal(data.duplicate_of_candidate_id)}</div>
       </div>
+
+      <h2>Review Decision</h2>
+      {isFinal ? (
+        <p>
+          This candidate is {status}. That state is final and it cannot be
+          decided again.
+        </p>
+      ) : (
+        <div className="decision-form">
+          {status === "held" && (
+            <p>
+              This candidate is held, and a held candidate cannot be
+              selected. Unhold it first if the hold no longer applies.
+            </p>
+          )}
+          {selectBlockedByPair && (
+            <p>
+              Selection is blocked until the unresolved duplicate pair
+              {pendingPairs.length > 1 ? "s are" : " is"} resolved:{" "}
+              {pendingPairs.map((p, i) => (
+                <span key={p.id}>
+                  {i > 0 ? ", " : ""}
+                  <Link to={`/admin/discovery/pairs/${p.id}`}>
+                    review pair {p.id}
+                  </Link>
+                </span>
+              ))}
+              .
+            </p>
+          )}
+          <div>
+            <label htmlFor="decision-reason">Reason (required for hold and reject)</label>
+            <select
+              id="decision-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+            >
+              <option value="">Select a reason</option>
+              {HOLD_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="decision-note">Note (optional; required with reason other)</label>
+            <textarea
+              id="decision-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="decision-actions">
+            <button
+              type="button"
+              disabled={busy || status !== "pending" || selectBlockedByPair}
+              onClick={() => decide("select")}
+            >
+              Select candidate
+            </button>
+            <button
+              type="button"
+              disabled={busy || (status !== "pending" && status !== "selected")}
+              onClick={() => decide("hold")}
+            >
+              Hold candidate
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => decide("reject")}
+            >
+              Reject candidate
+            </button>
+            <button
+              type="button"
+              disabled={busy || status !== "held"}
+              onClick={() => decide("unhold")}
+            >
+              Unhold candidate
+            </button>
+          </div>
+          {actionError && (
+            <div className="queue-preview-failed" role="alert">
+              {actionError}
+            </div>
+          )}
+        </div>
+      )}
+
+      <h2>Decision History</h2>
+      {history && history.results.length > 0 ? (
+        <ul>
+          {history.results.map((d) => (
+            <li key={d.id}>
+              {d.decision}
+              {d.from_status || d.to_status
+                ? ` (${fmtVal(d.from_status)} -> ${fmtVal(d.to_status)})`
+                : ""}
+              {d.reason ? ` | Reason: ${d.reason}` : ""}
+              {d.pair_id ? ` | Pair ${d.pair_id}` : ""} | By{" "}
+              {d.decided_by ? d.decided_by.user_name : "unknown"} |{" "}
+              {fmtDate(d.created_at)}
+              {d.note ? ` | Note: ${d.note}` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No decisions recorded yet</p>
+      )}
 
       <h2>Duplicate Pairs</h2>
       {data.pairs && data.pairs.length > 0 ? (
@@ -110,7 +288,8 @@ const DiscoveryCandidateDetailPage: React.FC = () => {
                 </Link>
               ) : (
                 fmtVal(pair.external_ref)
-              )}
+              )}{" "}
+              | <Link to={`/admin/discovery/pairs/${pair.id}`}>Review pair</Link>
             </li>
           ))}
         </ul>

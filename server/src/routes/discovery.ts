@@ -1,9 +1,8 @@
 // Discovery hub routes (hub decision 006, issues/001). All GET, all
 // read only, all mounted behind decodeAdminToken by app.ts, all served
-// by the read-only viewer Prisma client. This phase has NO decision
-// endpoints and no write client: candidates are staged, browsed, and
-// filtered; decisions arrive with the review write path in a later
-// phase.
+// by the read-only viewer Prisma client. The decision endpoints (the
+// candidate-selection gate) live in routes/discoveryDecisions.ts on
+// the separate discovery write client; this module stays read-only.
 //
 //   GET /admin-api/v1/discovery/batches
 //     Every batch with record_count and grouped candidate counts by
@@ -40,7 +39,7 @@ export const HOLD_REASONS = [
   'duplicate_unresolved', 'image_unverified', 'metadata_incomplete',
   'out_of_scope', 'other',
 ];
-export const REVIEW_STATUSES = ['pending'];
+export const REVIEW_STATUSES = ['pending', 'selected', 'held', 'rejected', 'superseded', 'imported'];
 
 const enumFilter = (
   query: Record<string, unknown>,
@@ -175,7 +174,16 @@ export const createDiscoveryRouter = (prisma: any) => {
         batch: { select: { id: true, slug: true, title: true } },
         pairs_as_candidate: {
           orderBy: { id: 'asc' },
-          include: { rival: { select: { id: true, name: true, brewery_name: true } } },
+          include: {
+            rival: {
+              select: {
+                id: true, name: true, brewery_name: true, style: true, abv: true,
+                barcode: true, source: true, origin_bucket: true,
+                image_status_normalized: true, review_status: true,
+              },
+            },
+            decider: { select: { id: true, user_name: true } },
+          },
         },
       },
     });
@@ -200,6 +208,9 @@ export const createDiscoveryRouter = (prisma: any) => {
       image_height: fields.image_height,
       hold_note: fields.hold_note,
       duplicate_of_candidate_id: fields.duplicate_of_candidate_id,
+      image_decision: fields.image_decision ?? null,
+      image_decision_fetch_id: fields.image_decision_fetch_id ?? null,
+      image_decision_at: fields.image_decision_at ?? null,
       created_at: fields.created_at,
       updated_at: fields.updated_at,
       batch: batch ? { id: batch.id, slug: batch.slug, title: batch.title } : null,
@@ -212,8 +223,61 @@ export const createDiscoveryRouter = (prisma: any) => {
         method: p.method,
         score: p.score,
         status: p.status,
-        rival: p.rival ? { id: p.rival.id, name: p.rival.name, brewery_name: p.rival.brewery_name } : null,
+        decided_by: p.decider ? { id: p.decider.id, user_name: p.decider.user_name } : null,
+        decided_at: p.decided_at ?? null,
+        rival: p.rival ? {
+          id: p.rival.id, name: p.rival.name, brewery_name: p.rival.brewery_name,
+          style: p.rival.style, abv: p.rival.abv, barcode: p.rival.barcode,
+          source: p.rival.source, origin_bucket: p.rival.origin_bucket,
+          image_status_normalized: p.rival.image_status_normalized,
+          review_status: p.rival.review_status,
+        } : null,
       })),
+    });
+  }));
+
+  // One pair with BOTH sides serialized for the side-by-side duplicate
+  // review: the flagged candidate and the rival candidate (null when
+  // the rival lives in another batch and is named by external_ref).
+  router.get('/discovery/pairs/:id', wrap(async (req, res) => {
+    const id = parseIdParam(req.params.id);
+    const pair = await prisma.discovery_candidate_pairs.findUnique({
+      where: { id },
+      include: {
+        candidate: true,
+        rival: true,
+        decider: { select: { id: true, user_name: true } },
+      },
+    });
+    if (!pair) throw notFound('Discovery candidate pair not found.');
+    const { candidate, rival, decider, ...fields } = pair as any;
+    res.json({
+      id: fields.id,
+      batch_id: fields.batch_id,
+      candidate_id: fields.candidate_id,
+      candidate_id_b: fields.candidate_id_b,
+      external_ref: fields.external_ref,
+      comparison: fields.comparison,
+      method: fields.method,
+      score: fields.score,
+      status: fields.status,
+      decided_by: decider ? { id: decider.id, user_name: decider.user_name } : null,
+      decided_at: fields.decided_at ?? null,
+      created_at: fields.created_at,
+      candidate: candidate ? {
+        ...serializeCandidateListRow(candidate),
+        source_record_id: candidate.source_record_id,
+        source_url: candidate.source_url,
+        image_status: candidate.image_status,
+        hold_reason: candidate.hold_reason,
+      } : null,
+      rival: rival ? {
+        ...serializeCandidateListRow(rival),
+        source_record_id: rival.source_record_id,
+        source_url: rival.source_url,
+        image_status: rival.image_status,
+        hold_reason: rival.hold_reason,
+      } : null,
     });
   }));
 

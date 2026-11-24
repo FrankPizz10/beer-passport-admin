@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | 'conflict'
   | 'unprocessable_entity'
   | 'service_unavailable'
+  | 'too_many_requests'
   | 'internal_error';
 
 export class ApiError extends Error {
@@ -26,10 +27,12 @@ export class ApiError extends Error {
 }
 
 export const invalidParameter = (message: string) => new ApiError(400, 'invalid_parameter', message);
+export const forbidden = (message: string) => new ApiError(403, 'unauthorized', message);
 export const notFound = (message: string) => new ApiError(404, 'not_found', message);
 export const conflict = (message: string) => new ApiError(409, 'conflict', message);
 export const unprocessable = (message: string) => new ApiError(422, 'unprocessable_entity', message);
 export const serviceUnavailable = (message: string) => new ApiError(503, 'service_unavailable', message);
+export const tooManyRequests = (message: string) => new ApiError(429, 'too_many_requests', message);
 
 export const sendError = (res: Response, err: unknown) => {
   if (err instanceof ApiError) {
