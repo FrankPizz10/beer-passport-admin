@@ -1,21 +1,25 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import DiscoveryBatchesPage from "./DiscoveryBatchesPage";
-import { apiGet } from "../api/client";
+import { apiGet, apiPost, ApiError } from "../api/client";
 
 jest.mock("../api/client", () => ({
   apiGet: jest.fn(),
+  apiPost: jest.fn(),
   ApiError: class ApiError extends Error {
     status: number;
-    constructor(status: number, message: string) {
+    details?: any;
+    constructor(status: number, message: string, details?: any) {
       super(message);
       this.status = status;
+      this.details = details;
     }
   },
 }));
 
 const mockApiGet = apiGet as jest.Mock;
+const mockApiPost = apiPost as jest.Mock;
 
 const batch = {
   id: 3,
@@ -83,4 +87,55 @@ test("renders the error state when apiGet rejects", async () => {
     </MemoryRouter>
   );
   expect(await screen.findByText("Server exploded")).toBeInTheDocument();
+});
+
+test("builds a manifest from the batch and navigates to its detail", async () => {
+  mockApiGet.mockResolvedValue({ results: [batch] });
+  mockApiPost.mockResolvedValue({ id: "mf-wikidata-2026-11-20261123-01" });
+  render(
+    <MemoryRouter initialEntries={["/admin/discovery/batches"]}>
+      <Routes>
+        <Route path="/admin/discovery/batches" element={<DiscoveryBatchesPage />} />
+        <Route
+          path="/admin/discovery/manifests/:id"
+          element={<div>Manifest detail stub</div>}
+        />
+      </Routes>
+    </MemoryRouter>
+  );
+  const button = await screen.findByRole("button", {
+    name: "Build import manifest",
+  });
+  fireEvent.click(button);
+  await waitFor(() =>
+    expect(mockApiPost).toHaveBeenCalledWith(
+      "/discovery/batches/3/manifests",
+      {}
+    )
+  );
+  expect(await screen.findByText("Manifest detail stub")).toBeInTheDocument();
+});
+
+test("surfaces manifest build eligibility blockers readably on a 422", async () => {
+  mockApiGet.mockResolvedValue({ results: [batch] });
+  mockApiPost.mockRejectedValue(
+    new ApiError(422, "1 selected candidate(s) are not import-eligible; no manifest was built.", {
+      error: { message: "blocked" },
+      blockers: [
+        { candidate_id: 12, candidate_key: "off:2", reasons: ["image_unverified"] },
+      ],
+    })
+  );
+  render(
+    <MemoryRouter>
+      <DiscoveryBatchesPage />
+    </MemoryRouter>
+  );
+  const button = await screen.findByRole("button", {
+    name: "Build import manifest",
+  });
+  fireEvent.click(button);
+  expect(
+    await screen.findByText(/off:2 \(candidate 12\): image_unverified/)
+  ).toBeInTheDocument();
 });
