@@ -4,7 +4,7 @@
 #
 # Builds a throwaway socket-only PostgreSQL 16 cluster from the
 # db-recovery workstream binaries, applies the catalog base schema,
-# migrations 001-004, the viewer role, and the discovery reviewer
+# migrations 001-005, the viewer role, and the discovery reviewer
 # role, then:
 #   1. runs server/db/verify-discovery.sql AS the viewer (must pass),
 #   2. runs server/db/verify-discovery-reviewer.sql AS the reviewer
@@ -71,12 +71,13 @@ test -s "${SCRATCH}/base.sql"
 (cd "${SERVER_DIR}" && CHECKPOINT_DISABLE=1 npx prisma generate >/dev/null)
 "${PSQL_DB[@]}" -q -f "${SCRATCH}/base.sql"
 
-echo "== migrations 001-004 and roles =="
+echo "== migrations 001-005 and roles =="
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/001-image-approval.sql"
 "${PSQL_DB[@]}" -q -v viewer_password="${VIEWER_PW}" -f "${SERVER_DIR}/db/readonly-role.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/002-discovery-staging.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/003-discovery-decisions.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/004-discovery-image-review.sql"
+"${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/005-discovery-manifests.sql"
 "${PSQL_DB[@]}" -q -v reviewer_password="${REVIEWER_PW}" -f "${SERVER_DIR}/db/discovery-reviewer-role.sql"
 
 echo "== seed admin user =="
