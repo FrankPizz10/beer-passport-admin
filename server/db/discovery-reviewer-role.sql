@@ -9,7 +9,14 @@
 -- (migration server/db/migrations/003-discovery-decisions.sql), the
 -- image fetch log and image decision audit tables, and the candidate
 -- image-decision state columns (migration
--- server/db/migrations/004-discovery-image-review.sql). The
+-- server/db/migrations/004-discovery-image-review.sql), and - since
+-- the manifest phase - INSERT and SELECT on the import manifest
+-- tables plus UPDATE on exactly the four manifest approval columns
+-- (status, approved_by, approved_at, approved_sha256; migration
+-- server/db/migrations/005-discovery-manifests.sql). The role can
+-- build, approve, and void manifests; it can NEVER mark one imported
+-- (no UPDATE on imported_at, manifest, or sha256) and it has no
+-- access to any catalog table beyond the SELECT grants below. The
 -- viewer role (beerpassport_admin_viewer) stays SELECT-only and is
 -- untouched by this script; the approver role
 -- (beerpassport_admin_approver) is likewise untouched.
@@ -26,6 +33,9 @@
 --
 --   psql -d <database> -v reviewer_password='<set-at-deploy-time>' \
 --        -f server/db/discovery-reviewer-role.sql
+--
+-- (Migration server/db/migrations/005-discovery-manifests.sql must
+-- also be applied first, like 002 to 004 below.)
 --
 -- Properties enforced here, mirroring server/db/approval-role.sql:
 --   LOGIN, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOINHERIT,
@@ -102,9 +112,11 @@ $$;
 -- database, USAGE on public, table-level SELECT on discovery_batches,
 -- discovery_candidates, discovery_candidate_pairs, beers, and
 -- breweries, INSERT and SELECT on discovery_decisions,
--- discovery_image_fetches, and discovery_image_decisions, USAGE on
--- their id sequences, and the column-level UPDATE sets on candidates
--- (decision columns plus image-decision state columns) and pairs.
+-- discovery_image_fetches, discovery_image_decisions,
+-- discovery_import_manifests, and discovery_manifest_events, USAGE
+-- on their id sequences, and the column-level UPDATE sets on
+-- candidates (decision columns plus image-decision state columns),
+-- pairs, and import manifests (the four approval columns only).
 -- Anything else is listed and the run refuses to continue.
 DO $$
 DECLARE
@@ -141,11 +153,13 @@ BEGIN
               'discovery_candidate_pairs', 'beers', 'breweries')
               AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
           OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
-              'discovery_image_decisions') AND c.relkind = 'r'
+              'discovery_image_decisions', 'discovery_import_manifests',
+              'discovery_manifest_events') AND c.relkind = 'r'
               AND a.privilege_type IN ('INSERT', 'SELECT'))
           OR (c.relname IN ('discovery_decisions_id_seq',
               'discovery_image_fetches_id_seq',
-              'discovery_image_decisions_id_seq') AND c.relkind = 'S'
+              'discovery_image_decisions_id_seq',
+              'discovery_manifest_events_id_seq') AND c.relkind = 'S'
               AND a.privilege_type = 'USAGE')))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
@@ -168,7 +182,11 @@ BEGIN
                 'image_decision_at'))
           OR (c.relname = 'discovery_candidate_pairs'
               AND a.privilege_type = 'UPDATE'
-              AND att.attname IN ('status', 'decided_by', 'decided_at'))))
+              AND att.attname IN ('status', 'decided_by', 'decided_at'))
+          OR (c.relname = 'discovery_import_manifests'
+              AND a.privilege_type = 'UPDATE'
+              AND att.attname IN ('status', 'approved_by', 'approved_at',
+                'approved_sha256'))))
   LOOP
     findings := findings || format('column %s: %s', r.obj, r.priv);
   END LOOP;
@@ -279,6 +297,20 @@ GRANT INSERT, SELECT ON discovery_image_fetches, discovery_image_decisions
   TO beerpassport_discovery_reviewer;
 GRANT USAGE ON SEQUENCE discovery_image_fetches_id_seq,
   discovery_image_decisions_id_seq TO beerpassport_discovery_reviewer;
+
+-- Import manifests (migration 005): build (INSERT), read back
+-- (SELECT), the lifecycle audit (INSERT and SELECT on the events
+-- table), and UPDATE on exactly the four approval columns the
+-- approval and void endpoints write. There is deliberately NO grant
+-- on imported_at, manifest, sha256, record_count, or
+-- catalog_fingerprint: manifest content is immutable for this role
+-- and marking a manifest imported is the operator executor's act.
+GRANT INSERT, SELECT ON discovery_import_manifests, discovery_manifest_events
+  TO beerpassport_discovery_reviewer;
+GRANT UPDATE (status, approved_by, approved_at, approved_sha256)
+  ON discovery_import_manifests TO beerpassport_discovery_reviewer;
+GRANT USAGE ON SEQUENCE discovery_manifest_events_id_seq
+  TO beerpassport_discovery_reviewer;
 
 -- Belt and braces: no default privileges may auto-grant this role
 -- anything on future tables.

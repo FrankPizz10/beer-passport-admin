@@ -22,6 +22,8 @@ import UserDetailPage from "./pages/UserDetailPage";
 import AdminAccountsPage from "./pages/AdminAccountsPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import DiscoveryBatchesPage from "./pages/DiscoveryBatchesPage";
+import DiscoveryManifestsPage from "./pages/DiscoveryManifestsPage";
+import DiscoveryManifestDetailPage from "./pages/DiscoveryManifestDetailPage";
 import DiscoveryCandidatesPage from "./pages/DiscoveryCandidatesPage";
 import DiscoveryCandidateDetailPage from "./pages/DiscoveryCandidateDetailPage";
 import DiscoveryPairPage from "./pages/DiscoveryPairPage";
@@ -49,6 +51,8 @@ function AppRoutes() {
           <Route path="catalog/beverage-images" element={<BeverageImagesPage />} />
           <Route path="catalog/image-queue" element={<ImageQueuePage />} />
           <Route path="discovery/batches" element={<DiscoveryBatchesPage />} />
+          <Route path="discovery/manifests" element={<DiscoveryManifestsPage />} />
+          <Route path="discovery/manifests/:id" element={<DiscoveryManifestDetailPage />} />
           <Route path="discovery/batches/:batchId/candidates" element={<DiscoveryCandidatesPage />} />
           <Route path="discovery/batches/:batchId/decisions" element={<DiscoveryBatchDecisionsPage />} />
           <Route path="discovery/candidates/:id" element={<DiscoveryCandidateDetailPage />} />

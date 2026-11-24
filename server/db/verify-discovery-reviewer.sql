@@ -3,8 +3,9 @@
 -- Run CONNECTED AS the reviewer role, AFTER
 -- server/db/discovery-reviewer-role.sql and migrations
 -- server/db/migrations/002-discovery-staging.sql,
--- server/db/migrations/003-discovery-decisions.sql, and
--- server/db/migrations/004-discovery-image-review.sql:
+-- server/db/migrations/003-discovery-decisions.sql,
+-- server/db/migrations/004-discovery-image-review.sql, and
+-- server/db/migrations/005-discovery-manifests.sql:
 --
 --   PGPASSWORD='<reviewer password>' psql -h <host> -U beerpassport_discovery_reviewer \
 --        -d <database> -f server/db/verify-discovery-reviewer.sql
@@ -71,8 +72,9 @@ $$;
 -- No unexpected DIRECT privileges: beyond the intended grants (CONNECT
 -- on this database, USAGE on public, SELECT on the discovery tables
 -- and on beers and breweries, the column-level UPDATE sets, INSERT
--- and SELECT on discovery_decisions, discovery_image_fetches, and
--- discovery_image_decisions, USAGE on their sequences), the role
+-- and SELECT on discovery_decisions, discovery_image_fetches,
+-- discovery_image_decisions, discovery_import_manifests, and
+-- discovery_manifest_events, USAGE on their sequences), the role
 -- must hold nothing. Mirrors the setup audit.
 DO $$
 DECLARE
@@ -96,11 +98,13 @@ BEGIN
              'discovery_candidate_pairs', 'beers', 'breweries')
              AND c.relkind = 'r' AND a.privilege_type = 'SELECT')
          OR (c.relname IN ('discovery_decisions', 'discovery_image_fetches',
-             'discovery_image_decisions') AND c.relkind = 'r'
+             'discovery_image_decisions', 'discovery_import_manifests',
+             'discovery_manifest_events') AND c.relkind = 'r'
              AND a.privilege_type IN ('INSERT', 'SELECT'))
          OR (c.relname IN ('discovery_decisions_id_seq',
              'discovery_image_fetches_id_seq',
-             'discovery_image_decisions_id_seq') AND c.relkind = 'S'
+             'discovery_image_decisions_id_seq',
+             'discovery_manifest_events_id_seq') AND c.relkind = 'S'
              AND a.privilege_type = 'USAGE')));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_attribute att
@@ -116,7 +120,11 @@ BEGIN
               'image_decision_at'))
         OR (c.relname = 'discovery_candidate_pairs'
             AND a.privilege_type = 'UPDATE'
-            AND att.attname IN ('status', 'decided_by', 'decided_at'))));
+            AND att.attname IN ('status', 'decided_by', 'decided_at'))
+        OR (c.relname = 'discovery_import_manifests'
+            AND a.privilege_type = 'UPDATE'
+            AND att.attname IN ('status', 'approved_by', 'approved_at',
+              'approved_sha256'))));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_proc p, aclexplode(p.proacl) a
   WHERE a.grantee = me;
@@ -210,6 +218,34 @@ BEGIN
   EXCEPTION WHEN foreign_key_violation OR check_violation OR not_null_violation THEN
     RAISE NOTICE 'PASS: INSERT into discovery_image_decisions is privileged (stopped only by a constraint; no fetch row exists to reference)';
   END;
+
+  -- Import manifests (migration 005): readable, buildable (INSERT),
+  -- and updatable on exactly the four approval columns. The INSERT
+  -- appends are stopped by the batch foreign key when no batch row
+  -- exists, which still proves the privilege (same trick as above).
+  PERFORM count(*) FROM discovery_import_manifests;
+  PERFORM count(*) FROM discovery_manifest_events;
+  RAISE NOTICE 'PASS: SELECT on discovery manifest tables succeeds';
+  BEGIN
+    INSERT INTO discovery_import_manifests
+      (id, batch_id, manifest, sha256, record_count, catalog_fingerprint)
+    VALUES ('mf-verify-20260101-01', -1, '{}'::jsonb, repeat('1', 64), 0, '{}'::jsonb);
+    RAISE NOTICE 'PASS: INSERT into discovery_import_manifests succeeds';
+  EXCEPTION WHEN foreign_key_violation OR check_violation OR not_null_violation THEN
+    RAISE NOTICE 'PASS: INSERT into discovery_import_manifests is privileged (stopped only by a constraint; no batch row exists to reference)';
+  END;
+  BEGIN
+    INSERT INTO discovery_manifest_events (manifest_id, action)
+    VALUES ('mf-verify-20260101-01', 'build');
+    RAISE NOTICE 'PASS: INSERT into discovery_manifest_events succeeds';
+  EXCEPTION WHEN foreign_key_violation OR check_violation OR not_null_violation THEN
+    RAISE NOTICE 'PASS: INSERT into discovery_manifest_events is privileged (stopped only by a constraint; no manifest row exists to reference)';
+  END;
+  UPDATE discovery_import_manifests
+     SET status = 'approved', approved_by = NULL, approved_at = CURRENT_TIMESTAMP,
+         approved_sha256 = repeat('1', 64)
+   WHERE id = 'mf-no-such-manifest';
+  RAISE NOTICE 'PASS: UPDATE of the four manifest approval columns succeeds';
 END
 $$;
 
@@ -325,6 +361,48 @@ BEGIN
     RAISE EXCEPTION 'FAIL: UPDATE of image_url (outside the image-decision columns) succeeded';
   EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'PASS: UPDATE of image_url (outside the image-decision columns) denied';
+  END;
+  BEGIN
+    UPDATE discovery_import_manifests SET sha256 = sha256 WHERE id = 'mf-no-such-manifest';
+    RAISE EXCEPTION 'FAIL: UPDATE of manifest sha256 (immutable content) succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE of manifest sha256 (outside the approval columns) denied';
+  END;
+  BEGIN
+    UPDATE discovery_import_manifests SET manifest = manifest WHERE id = 'mf-no-such-manifest';
+    RAISE EXCEPTION 'FAIL: UPDATE of manifest content succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE of manifest content (immutable) denied';
+  END;
+  BEGIN
+    UPDATE discovery_import_manifests SET imported_at = CURRENT_TIMESTAMP WHERE id = 'mf-no-such-manifest';
+    RAISE EXCEPTION 'FAIL: UPDATE of imported_at succeeded (the reviewer must never mark a manifest imported)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE of imported_at denied (marking imported is the operator executor only)';
+  END;
+  BEGIN
+    UPDATE discovery_import_manifests SET record_count = record_count WHERE id = 'mf-no-such-manifest';
+    RAISE EXCEPTION 'FAIL: UPDATE of manifest record_count succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE of manifest record_count (outside the approval columns) denied';
+  END;
+  BEGIN
+    DELETE FROM discovery_import_manifests WHERE id = 'mf-no-such-manifest';
+    RAISE EXCEPTION 'FAIL: DELETE on discovery_import_manifests succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: DELETE on discovery_import_manifests denied';
+  END;
+  BEGIN
+    UPDATE discovery_manifest_events SET note = note WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: UPDATE on discovery_manifest_events succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: UPDATE on discovery_manifest_events (append-only) denied';
+  END;
+  BEGIN
+    DELETE FROM discovery_manifest_events WHERE id = -1;
+    RAISE EXCEPTION 'FAIL: DELETE on discovery_manifest_events succeeded';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: DELETE on discovery_manifest_events denied';
   END;
   BEGIN
     PERFORM id FROM users LIMIT 1;

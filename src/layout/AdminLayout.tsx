@@ -111,6 +111,7 @@ const AdminLayout: React.FC = () => {
           <NavLink to="catalog/image-queue">Image Queue</NavLink>
           <div className="nav-section">Discovery</div>
           <NavLink to="discovery/batches">Batches</NavLink>
+          <NavLink to="discovery/manifests">Manifests</NavLink>
           <div className="nav-section">User Data</div>
           <NavLink to="users">Users</NavLink>
           <div className="nav-section">Admin Accounts</div>

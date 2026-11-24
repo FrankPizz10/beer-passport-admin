@@ -3,9 +3,12 @@
 // write client from writeDb.ts and the discovery review endpoints
 // (POST /discovery/candidates/:id/decide,
 // /discovery/pairs/:id/decide, and the image review POSTs
-// /discovery/candidates/:id/image-fetches and /image-decisions) on
-// the write client from discoveryWriteDb.ts; those modules are the
-// only mutation surface in the server. The health route is public;
+// /discovery/candidates/:id/image-fetches and /image-decisions) and
+// the discovery manifest endpoints (POST
+// /discovery/batches/:id/manifests, POST
+// /discovery/manifests/:id/approve and /void) on the write client
+// from discoveryWriteDb.ts; those modules are the only mutation
+// surface in the server. The health route is public;
 // every other /admin-api/v1 route sits behind decodeAdminToken.
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
@@ -23,6 +26,7 @@ import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
 import { createDiscoveryDecisionsRouter } from './routes/discoveryDecisions';
 import { createDiscoveryImagesRouter, DiscoveryImageServices } from './routes/discoveryImages';
+import { createDiscoveryManifestsRouter } from './routes/discoveryManifests';
 import { getDefaultPresigner, PresignGetUrl } from './imageStorage';
 import { sendError, notFound } from './errors';
 
@@ -35,6 +39,7 @@ export type AppDeps = {
   firebaseVerifier?: AuthVerifier;
   presignGetUrl?: PresignGetUrl | null;
   discoveryImageServices?: DiscoveryImageServices;
+  discoveryManifestApproverIds?: number[];
 };
 
 export const createApp = (deps: AppDeps = {}) => {
@@ -98,6 +103,13 @@ export const createApp = (deps: AppDeps = {}) => {
   } else {
     api.use(createDiscoveryImagesRouter(prisma, discoveryWritePrisma));
   }
+  api.use(createDiscoveryManifestsRouter(
+    prisma,
+    discoveryWritePrisma,
+    deps.discoveryManifestApproverIds !== undefined
+      ? { approverUserIds: deps.discoveryManifestApproverIds }
+      : {},
+  ));
   app.use('/admin-api/v1', api);
 
   app.use((_req: Request, res: Response) => {

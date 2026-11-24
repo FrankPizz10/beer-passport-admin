@@ -158,6 +158,7 @@ model discovery_batches {
   ingested_at       DateTime @default(now()) @db.Timestamp(0)
   candidates        discovery_candidates[]
   pairs             discovery_candidate_pairs[]
+  manifests         discovery_import_manifests[]
 }
 
 model discovery_candidates {
@@ -335,6 +336,61 @@ model discovery_image_decisions {
   @@index([decided_at], map: "discovery_image_decisions_decided_at_idx")
 }
 
+// One row per built import manifest (migration 005 in
+// server/db/migrations; hub decision 006 revisions 1 and 2,
+// issues/001). Manifests are immutable once built: manifest holds
+// the canonical content (header, per-record import payload
+// snapshots with payload hashes and decision ids, and the catalog
+// baseline fingerprint) and sha256 is the SHA-256 of its canonical
+// serialization. status moves draft -> approved -> imported, or
+// draft | approved -> void. approved_sha256 equals sha256 at
+// approval time and is never updated afterward. built_by_uid is
+// audit-only, never serialized.
+model discovery_import_manifests {
+  id                  String    @id @db.VarChar(80)
+  batch_id            Int
+  manifest            Json
+  sha256              String    @unique @db.VarChar(64)
+  record_count        Int
+  catalog_fingerprint Json
+  status              String    @default("draft") @db.VarChar(20)
+  built_by            Int?
+  built_by_uid        String?   @db.VarChar(255)
+  approved_by         Int?
+  approved_at         DateTime? @db.Timestamp(0)
+  approved_sha256     String?   @db.VarChar(64)
+  imported_at         DateTime? @db.Timestamp(0)
+  created_at          DateTime  @default(now()) @db.Timestamp(0)
+  batch               discovery_batches @relation(fields: [batch_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_manifests_batch_id")
+  builder             users?    @relation("discovery_manifests_built_by", fields: [built_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_manifests_built_by")
+  approver            users?    @relation("discovery_manifests_approved_by", fields: [approved_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_manifests_approved_by")
+  events              discovery_manifest_events[]
+
+  @@index([batch_id], map: "discovery_import_manifests_batch_id_idx")
+  @@index([status], map: "discovery_import_manifests_status_idx")
+}
+
+// Append-only lifecycle audit for import manifests (migration 005):
+// build / approve / void written by the API on the reviewer client,
+// import written by the operator import executor inside its
+// transaction. actor_uid is audit-only, never serialized.
+model discovery_manifest_events {
+  id          Int       @id @default(autoincrement())
+  manifest_id String    @db.VarChar(80)
+  action      String    @db.VarChar(40)
+  from_status String?   @db.VarChar(20)
+  to_status   String?   @db.VarChar(20)
+  note        String?   @db.Text
+  actor_id    Int?
+  actor_uid   String?   @db.VarChar(255)
+  created_at  DateTime  @default(now()) @db.Timestamp(0)
+  manifest    discovery_import_manifests @relation(fields: [manifest_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_manifest_events_manifest_id")
+  actor       users?    @relation("discovery_manifest_events_actor", fields: [actor_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_discovery_manifest_events_actor_id")
+
+  @@index([manifest_id], map: "discovery_manifest_events_manifest_id_idx")
+  @@index([created_at], map: "discovery_manifest_events_created_at_idx")
+}
+
 model breweries {
   id       Int      @id @default(autoincrement())
   name     String   @default("") @db.VarChar(255)
@@ -420,6 +476,9 @@ model users {
   discovery_decisions_decided   discovery_decisions[] @relation("discovery_decisions_decided_by")
   discovery_image_fetches       discovery_image_fetches[] @relation("discovery_image_fetches_fetched_by")
   discovery_image_decisions     discovery_image_decisions[] @relation("discovery_image_decisions_decided_by")
+  discovery_manifests_built     discovery_import_manifests[] @relation("discovery_manifests_built_by")
+  discovery_manifests_approved  discovery_import_manifests[] @relation("discovery_manifests_approved_by")
+  discovery_manifest_events     discovery_manifest_events[] @relation("discovery_manifest_events_actor")
 }
 
 model collections {

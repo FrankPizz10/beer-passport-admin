@@ -7,17 +7,21 @@
 // This client connects as beerpassport_discovery_reviewer (see
 // server/db/discovery-reviewer-role.sql): it can update only the
 // decision columns of discovery_candidates and
-// discovery_candidate_pairs, insert/select discovery_decisions, and
+// discovery_candidate_pairs, insert/select discovery_decisions,
 // (since the image review phase) insert/select
 // discovery_image_fetches and discovery_image_decisions and update
-// the candidates' image-decision state columns, nothing else. It
-// exists so the discovery review endpoints
-// (src/routes/discoveryDecisions.ts and
-// src/routes/discoveryImages.ts, with imageApprovals.ts the only
+// the candidates' image-decision state columns, and (since the
+// manifest phase) insert/select discovery_import_manifests and
+// discovery_manifest_events and update exactly the four manifest
+// approval columns, nothing else. It exists so the discovery review
+// endpoints (src/routes/discoveryDecisions.ts,
+// src/routes/discoveryImages.ts, and
+// src/routes/discoveryManifests.ts, with imageApprovals.ts the only
 // modules allowed to call Prisma mutation methods; see
 // src/readOnlyGuard.test.ts) run under a database identity whose
-// blast radius is exactly the review gates: no manifests and no
-// catalog writes exist in this phase.
+// blast radius is exactly the review gates: it can build, approve,
+// and void manifests but can never mark one imported, and no
+// catalog writes exist on this client in any phase.
 //
 // Configuration: DATABASE_URL_DISCOVERY_WRITE. When it is unset the
 // write path is disabled: getDiscoveryWritePrisma returns null, the
