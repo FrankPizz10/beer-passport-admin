@@ -2,11 +2,16 @@ import { auth } from "../Firebase/firebase";
 
 export class ApiError extends Error {
   status: number;
+  // The parsed error body, when the API sent one. The manifest build
+  // endpoint uses it to carry the structured 422 blockers list so the
+  // UI can render blocking candidates readably.
+  details?: any;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: any) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -102,7 +107,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
       (parsed && parsed.message) ||
       response.statusText ||
       `Request failed with status ${response.status}`;
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, parsed ?? undefined);
   }
   return parsed as T;
 }
