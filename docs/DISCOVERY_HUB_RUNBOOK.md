@@ -47,19 +47,29 @@ Verify, connected AS the viewer role:
 
 - `server/db/verify-discovery.sql`: discovery reads succeed; INSERT,
   UPDATE, and DELETE on the discovery tables are denied (8 checks).
-- `server/db/verify-readonly-role.sql`: unchanged and still the
-  catalog-grant verification, with one known interaction: its
-  direct-privilege whitelist names the 15 catalog tables, so after
-  migration 002 its whitelist check reports exactly 3 "unexpected"
-  privileges, which are precisely the three discovery SELECT grants.
-  Migration 003 adds a fourth (the viewer's SELECT on
-  discovery_decisions), so the expected count after migration 003 is
-  exactly 4. A follow-up change must add `discovery_batches`,
-  `discovery_candidates`, `discovery_candidate_pairs`, and
-  `discovery_decisions` to that whitelist; until then, treat a count
-  of exactly 4 (and no other failure in that script) as the expected
-  post-003 result. This was verified on the disposable database: every
-  other check in the script behaves as before.
+- `server/db/verify-readonly-role.sql`: the catalog-grant
+  verification. Its direct-privilege whitelist now covers the 8
+  discovery tables granted to the viewer by migrations 002-005
+  (`discovery_batches`, `discovery_candidates`,
+  `discovery_candidate_pairs`, `discovery_decisions`,
+  `discovery_image_fetches`, `discovery_image_decisions`,
+  `discovery_import_manifests`, `discovery_manifest_events`), so
+  after migrations 001-005 it passes with no "unexpected" privileges.
+  The same 8 names were added to the identical whitelist in
+  `server/db/readonly-role.sql`'s pre-change audit AND to its
+  re-grant step: the role script revokes ALL on every public table
+  and re-grants only its own list, so without a re-grant entry a
+  re-run would silently strip the viewer's discovery grants and
+  break hub reads. The re-grant is existence-guarded (the script
+  runs after migration 001, before migrations 002-005, in the
+  documented order, so the discovery tables may not exist yet on a
+  first run; on a re-run against a migrated database all 8 exist
+  and are re-granted). Re-running readonly-role.sql is now safe on
+  a migrated database and preserves the discovery grants;
+  `server/scripts/test-discovery-roles.sh` proves both on a
+  disposable database (verify passes after migrations 002-005, the
+  role script is re-run, and the 8 discovery SELECT grants are
+  asserted still present with the verify passing again).
 
 Canonical schema: the staging tables must be mirrored into
 beer-passport-server's Prisma schema before migration 002 is applied
@@ -113,6 +123,18 @@ the database, then:
   loads batch, candidates, and pairs in ONE transaction and prints
   the counts report (inserted, collisions flagged, holds by reason,
   pairs).
+
+The single ingest transaction runs with an explicit timeout
+(`{ timeout: 900000, maxWait: 120000 }` in
+`scripts/ingest-discovery-bundle.ts`): the full domestic bundle is
+6,817 records, whose per-record inserts exceed Prisma's default 5s
+transaction timeout and abort with P2028 (the transaction rolls back
+cleanly, but nothing is ingested). The timeout keeps the ingest one
+all-or-nothing transaction at full-set scale; do not batch or split
+it. `server/scripts/test-full-domestic-ingest.sh` reproduces the
+default-timeout failure with the pre-fix script and verifies the
+full 6,817-record ingest (plus the same-hash no-op re-ingest) on a
+disposable database.
 
 Seed order for a new environment (per issues/001 section 5): a small
 seed first for end-to-end review (for example
