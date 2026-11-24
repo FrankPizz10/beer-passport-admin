@@ -20,10 +20,10 @@ import {
 //
 // - Section A endpoints EXIST in the admin API on master, verified
 //   against the server route modules named in the contract doc.
-// - The review-intent endpoints (section B1) are a contract supplied
-//   by Frank and implemented in Codex's LOCAL backend; they are NOT
-//   deployed or merged yet. The UI integrates against them now, and
-//   until deployment their calls fail with the server's own error,
+// - The review-intent endpoints (section B1) were supplied as a
+//   contract by Frank and implemented in Codex's backend; they are
+//   live in production (a saved intent exists there). As with every
+//   operation here, a failure surfaces the server's own error,
 //   which this client preserves (see below).
 //
 // Server errors are NEVER collapsed into a generic failure: apiGet /
@@ -38,18 +38,18 @@ export const REVIEW_API_CONTRACT_DOC = "docs/DISCOVERY_REVIEW_API_CONTRACT.md";
 
 // Thrown by operations whose backend capability is genuinely absent.
 // No current client operation throws it: field editing is expressed
-// through the review-intent contract (B1), and the capabilities that
-// remain absent (an audited image_url refetch/invalidation flow; the
-// image-only IMPORT path in the executor) have no UI operation yet.
-// The type is retained so a future operation can mark itself pending
-// in exactly the same way, and the UI can render the pending state.
+// through the review-intent contract (B1), and the one capability
+// that remains unsupported (an audited image_url refetch and
+// invalidation flow) has no UI operation yet. The type is retained
+// so a future operation can mark itself unavailable in exactly the
+// same way, and the UI can render that state.
 export class NotYetAvailableError extends Error {
   capability: string;
 
   constructor(capability: string) {
     super(
-      `${capability} is not available yet: the backend capability is ` +
-        `documented as pending in ${REVIEW_API_CONTRACT_DOC}. ` +
+      `${capability} is not supported: the limitation is ` +
+        `documented in ${REVIEW_API_CONTRACT_DOC}. ` +
         `No data was changed.`
     );
     this.name = "NotYetAvailableError";
@@ -185,8 +185,8 @@ export interface DiscoveryReviewClient {
   approveManifest(id: string, sha256: string): Promise<DiscoveryManifest>;
 
   // --- Review intent (contract doc section B1) ---
-  // Frank-supplied contract, implemented in Codex's local backend,
-  // NOT deployed or merged yet. GET returns the saved intent record
+  // Frank-supplied contract, implemented in Codex's backend and
+  // live in production. GET returns the saved intent record
   // or null. POST saves (or replaces) the intent: expectedRevision
   // is the last returned intent id, or null when no intent exists;
   // a stale revision is refused 409 and the server's error (status +

@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import DiscoveryCandidateFieldReview from "./DiscoveryCandidateFieldReview";
 
@@ -126,8 +127,13 @@ test("with no saved intent the form starts from staged values; detector output i
   expect(
     (screen.getByLabelText("Proposed ABV") as HTMLInputElement).value
   ).toBe("3.2123353678124");
+  // The precision warning appears twice by design: beside the ABV
+  // field and in the validation summary above the form.
   expect(
-    screen.getByText(/more than 2 decimal places and needs human review/)
+    screen.getAllByText(/more than 2 decimal places and needs human review/)
+  ).toHaveLength(2);
+  expect(
+    screen.getByText(/Field warnings to review/)
   ).toBeInTheDocument();
   // The detector reported no_match; that is displayed as staging
   // information and does not pick a mode or a target.
@@ -212,9 +218,12 @@ test("ABV 101 is a hard error and blocks the save", async () => {
   fireEvent.click(
     screen.getByRole("button", { name: "Save review intent (new beer)" })
   );
+  // The error appears beside the field and in the validation
+  // summary (which also flips to its error heading).
   expect(
-    await screen.findByText(/ABV must be between 0 and 100/)
-  ).toBeInTheDocument();
+    await screen.findAllByText(/ABV must be between 0 and 100/)
+  ).toHaveLength(2);
+  expect(screen.getByText(/1 field error to fix before saving/)).toBeInTheDocument();
   expect(screen.getByRole("alert")).toHaveTextContent(
     /Fix the field errors above before saving/
   );
@@ -270,7 +279,13 @@ test("image-only: reviewer searches, picks, and explicitly confirms a target for
     target: { value: "Bud" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Search catalog" }));
-  expect(await screen.findByText(/#42 - Bud Light/)).toBeInTheDocument();
+  // Results show name, ID, and brewery; "Bud Light" only partially
+  // matches the "Bud" query, so it is badged as a name variant.
+  const resultsList = await screen.findByText("#42");
+  const resultItem = resultsList.closest("li") as HTMLElement;
+  expect(within(resultItem).getByText("Bud Light")).toBeInTheDocument();
+  expect(within(resultItem).getByText(/Anheuser-Busch/)).toBeInTheDocument();
+  expect(within(resultItem).getByText("Name variant")).toBeInTheDocument();
   expect(client.searchCatalogBeers).toHaveBeenCalledWith("Bud");
   fireEvent.click(screen.getByRole("button", { name: "Choose as target" }));
   // Picking is not confirming: the save stays disabled until the
@@ -294,6 +309,58 @@ test("image-only: reviewer searches, picks, and explicitly confirms a target for
     })
   );
   expect(client.decideCandidate).not.toHaveBeenCalled();
+});
+
+test("target search distinguishes exact matches, variants, and same-name beers from other breweries", async () => {
+  const variants = [
+    { id: 42, name: "Bud Light", brewery: { id: 3, name: "Anheuser-Busch" } },
+    { id: 43, name: "Bud Light Lime", brewery: { id: 3, name: "Anheuser-Busch" } },
+    { id: 44, name: "Bud Light", brewery: { id: 8, name: "Brewery Two" } },
+  ];
+  const client = makeClient({
+    searchCatalogBeers: jest.fn(async () => ({
+      results: variants,
+      pagination: { page: 1, page_size: 20, total_results: 3, total_pages: 1 },
+    })),
+  });
+  await renderSection(client);
+  fireEvent.click(
+    screen.getByRole("radio", { name: "Image only for an existing beer" })
+  );
+  fireEvent.change(screen.getByLabelText("Search catalog beers by name"), {
+    target: { value: "Bud Light" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search catalog" }));
+  const item42 = (await screen.findByText("#42")).closest("li") as HTMLElement;
+  const item43 = screen.getByText("#43").closest("li") as HTMLElement;
+  const item44 = screen.getByText("#44").closest("li") as HTMLElement;
+  // Exact name matches are badged; the partial name is a variant.
+  expect(within(item42).getByText("Exact name match")).toBeInTheDocument();
+  expect(within(item43).getByText("Name variant")).toBeInTheDocument();
+  expect(within(item44).getByText("Exact name match")).toBeInTheDocument();
+  // Same name, different brewery: ID and brewery tell them apart.
+  expect(within(item44).getByText(/Brewery Two/)).toBeInTheDocument();
+  // Choose the same-name beer from the other brewery and confirm it:
+  // the confirmation names that exact beer.
+  fireEvent.click(
+    within(item44).getByRole("button", { name: "Choose as target" })
+  );
+  expect(
+    await screen.findByText(/Image-only target: catalog beer/)
+  ).toBeInTheDocument();
+  expect(screen.getByText(/#44 - Bud Light/)).toBeInTheDocument();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Confirm target beer #44" })
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Save review intent (image only)" })
+  );
+  await waitFor(() =>
+    expect(client.saveReviewIntent).toHaveBeenCalledWith(9, null, {
+      mode: "image_only",
+      target_beer_id: 44,
+    })
+  );
 });
 
 test("a 409 save switches to a reload-required state and reload refetches the intent", async () => {
