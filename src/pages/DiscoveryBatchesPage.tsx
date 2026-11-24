@@ -112,6 +112,12 @@ const DiscoveryBatchesPage: React.FC = () => {
                   to={`/admin/discovery/batches/${batch.id}/candidates`}
                 >
                   View candidates
+                </Link>{" "}
+                |{" "}
+                <Link
+                  to={`/admin/discovery/batches/${batch.id}/decisions`}
+                >
+                  Decision audit
                 </Link>
               </p>
             </section>
