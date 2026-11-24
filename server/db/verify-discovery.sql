@@ -150,4 +150,58 @@ EXCEPTION WHEN insufficient_privilege THEN
   RAISE NOTICE 'PASS: UPDATE of image_decision on discovery_candidates denied';
 END $$;
 
+-- Import manifests (migration 005): readable, never writable.
+SELECT count(*) AS discovery_import_manifests_readable FROM discovery_import_manifests;
+SELECT count(*) AS discovery_manifest_events_readable FROM discovery_manifest_events;
+DO $$ BEGIN RAISE NOTICE 'PASS: discovery manifest reads succeed'; END $$;
+
+DO $$
+BEGIN
+  INSERT INTO discovery_import_manifests (id, batch_id, manifest, sha256, record_count, catalog_fingerprint)
+  VALUES ('mf-verify-20260101-01', -1, '{}'::jsonb, repeat('0', 64), 0, '{}'::jsonb);
+  RAISE EXCEPTION 'FAIL: INSERT into discovery_import_manifests succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: INSERT into discovery_import_manifests denied';
+END $$;
+
+DO $$
+BEGIN
+  UPDATE discovery_import_manifests SET status = 'approved' WHERE id = 'mf-verify-20260101-01';
+  RAISE EXCEPTION 'FAIL: UPDATE on discovery_import_manifests succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: UPDATE on discovery_import_manifests denied';
+END $$;
+
+DO $$
+BEGIN
+  DELETE FROM discovery_import_manifests WHERE id = 'mf-verify-20260101-01';
+  RAISE EXCEPTION 'FAIL: DELETE on discovery_import_manifests succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: DELETE on discovery_import_manifests denied';
+END $$;
+
+DO $$
+BEGIN
+  INSERT INTO discovery_manifest_events (manifest_id, action) VALUES ('mf-verify-20260101-01', 'build');
+  RAISE EXCEPTION 'FAIL: INSERT into discovery_manifest_events succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: INSERT into discovery_manifest_events denied';
+END $$;
+
+DO $$
+BEGIN
+  UPDATE discovery_manifest_events SET note = note WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: UPDATE on discovery_manifest_events succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: UPDATE on discovery_manifest_events denied';
+END $$;
+
+DO $$
+BEGIN
+  DELETE FROM discovery_manifest_events WHERE id = -1;
+  RAISE EXCEPTION 'FAIL: DELETE on discovery_manifest_events succeeded';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'PASS: DELETE on discovery_manifest_events denied';
+END $$;
+
 ROLLBACK;
