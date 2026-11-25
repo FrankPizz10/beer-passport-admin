@@ -142,6 +142,12 @@ Response 200:
 - `exhaustive` is always false: token retrieval and capped exact
   lookups can miss matches even below the scan cap. `scanned` is
   how many catalog rows were actually evaluated.
+- `completeness.token_query_complete` is true when the token query
+  ran without truncation, not a guarantee that it retrieved every
+  fuzzy match. `completeness.catalog_exhaustive` remains false:
+  this bounded implementation never scores the whole catalog.
+  `completeness.stages_truncated` lists capped stages using
+  `barcode_exact`, `name_exact`, and `similarity_scan`.
 - Refusals: 404 when the candidate does not exist (the sibling
   `not_found` shape), 503 when no read client is configured.
 - The endpoint is advisory: it records nothing, selects nothing,

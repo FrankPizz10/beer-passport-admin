@@ -86,6 +86,10 @@ echo "== migrations 001-005 and roles =="
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/003-discovery-decisions.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/004-discovery-image-review.sql"
 "${PSQL_DB[@]}" -q -f "${SERVER_DIR}/db/migrations/005-discovery-manifests.sql"
+# Test-only copy of the canonical beer-passport-server migration at
+# release/2.0 commit 2b06684f333ca438f890e9955711dc7a19ab0229.
+# Production receives this DDL exclusively through the server migration.
+"${PSQL_DB[@]}" -q -f "${SERVER_DIR}/test/fixtures/server-review-intents-migration.sql"
 "${PSQL_DB[@]}" -q -v reviewer_password="${REVIEWER_PW}" -f "${SERVER_DIR}/db/discovery-reviewer-role.sql"
 
 echo "== seed admin users (reviewer + manifest approver) =="

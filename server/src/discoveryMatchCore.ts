@@ -295,6 +295,11 @@ export type MatchSuggestionsResult = {
   suggestions: MatchSuggestion[];
   exhaustive: boolean;
   scanned: number;
+  completeness: {
+    token_query_complete: boolean;
+    catalog_exhaustive: boolean;
+    stages_truncated: string[];
+  };
 };
 
 export type MatchSuggestionsOptions = {
@@ -344,6 +349,8 @@ export const findMatchSuggestions = async (
   };
 
   const byId = new Map<number, MatchBeerInput>();
+  const stagesTruncated: string[] = [];
+  let tokenQueryComplete = false;
   const addRows = (rows: any[]) => {
     for (const row of rows) {
       if (!byId.has(row.id)) byId.set(row.id, toBeerInput(row));
@@ -353,20 +360,26 @@ export const findMatchSuggestions = async (
   // Stage 1: exact barcode (beers.upc). Equality lookup.
   const barcode = (candidate.barcode || '').trim();
   if (barcode) {
-    addRows(await prisma.beers.findMany({
+    const rows = await prisma.beers.findMany({
       where: { upc: barcode },
       select: beerSelect,
-      take: 50,
-    }));
+      orderBy: { id: 'asc' },
+      take: 51,
+    });
+    if (rows.length > 50) stagesTruncated.push('barcode_exact');
+    addRows(rows.slice(0, 50));
   }
 
   // Stage 2: exact name, case-insensitive. Equality lookup.
   if (candidate.name && candidate.name.trim()) {
-    addRows(await prisma.beers.findMany({
+    const rows = await prisma.beers.findMany({
       where: { name: { equals: candidate.name.trim(), mode: 'insensitive' } },
       select: beerSelect,
-      take: 50,
-    }));
+      orderBy: { id: 'asc' },
+      take: 51,
+    });
+    if (rows.length > 50) stagesTruncated.push('name_exact');
+    addRows(rows.slice(0, 50));
   }
 
   // Stage 3: bounded similarity scan over distinctive tokens of the
@@ -393,9 +406,11 @@ export const findMatchSuggestions = async (
       take: scanCap + 1,
     });
     if (rows.length > scanCap) {
+      stagesTruncated.push('similarity_scan');
       exhaustive = false;
       addRows(rows.slice(0, scanCap));
     } else {
+      tokenQueryComplete = true;
       addRows(rows);
     }
   }
@@ -406,5 +421,10 @@ export const findMatchSuggestions = async (
     suggestions: rankSuggestions(input, beers),
     exhaustive,
     scanned: beers.length,
+    completeness: {
+      token_query_complete: tokenQueryComplete,
+      catalog_exhaustive: false,
+      stages_truncated: stagesTruncated,
+    },
   };
 };
