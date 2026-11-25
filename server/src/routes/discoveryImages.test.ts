@@ -127,6 +127,12 @@ const buildApp = (opts: {
           ? fetchCount
           : fetchRows.length),
       findMany: jest.fn(async () => [...fetchRows].reverse()),
+      findFirst: jest.fn(async ({ orderBy }: any) => {
+        if (!fetchRows.length) return null;
+        const sorted = [...fetchRows].sort(
+          (a: any, b: any) => a.fetched_at.getTime() - b.fetched_at.getTime());
+        return orderBy && orderBy.fetched_at === 'desc' ? sorted[sorted.length - 1] : sorted[0];
+      }),
       findUnique: jest.fn(async ({ where }: any) =>
         fetchRows.find((f) => f.id === where.id) ?? null),
     },
@@ -262,6 +268,12 @@ describe('discovery image fetches', () => {
     h.setFetchCount(30);
     const res = await auth(request(h.app).post('/admin-api/v1/discovery/candidates/11/image-fetches')).send({});
     expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe('too_many_requests');
+    // Machine-readable retry guidance rides along: with no readable
+    // oldest row the stub yields the full-window fallback, mirrored
+    // in the Retry-After header.
+    expect(res.body.error.retry_after_seconds).toBe(3600);
+    expect(res.headers['retry-after']).toBe('3600');
     expect(h.writeCreates.fetches).toHaveLength(0);
   });
 

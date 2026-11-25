@@ -21,7 +21,10 @@
 //        http(s) image URL (absent, unparseable, non-http(s), or
 //        credentialed), 429 past the per-reviewer rate limit
 //        (IMAGE_FETCH_RATE_LIMIT per IMAGE_FETCH_RATE_WINDOW_MS,
-//        defaults 30 per hour).
+//        default 30 per hour, operator-configurable via
+//        DISCOVERY_IMAGE_FETCH_RATE_LIMIT up to a 600 maximum; the
+//        429 body carries error.retry_after_seconds, mirrored in
+//        the Retry-After header).
 //   GET  /admin-api/v1/discovery/candidates/:id/image-fetches
 //        The candidate's fetch history (viewer role), newest first.
 //   GET  /admin-api/v1/discovery/image-fetches/:fetchId/preview
@@ -75,8 +78,65 @@ const wrap = (fn: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response) => { fn(req, res).catch((e) => sendError(res, e)); };
 
 export const IMAGE_DECISIONS = ['approved', 'rejected'];
-export const IMAGE_FETCH_RATE_LIMIT = 30;
+
+// Per-reviewer image fetch rate limit: attempts counted from
+// discovery_image_fetches over a rolling window (see the fetch
+// handler). The default of 30 per hour is the historical behavior
+// and stays in force unless an operator configures
+// DISCOVERY_IMAGE_FETCH_RATE_LIMIT for high-throughput review
+// sessions. Parsing rules (parseImageFetchRateLimit, exported for
+// tests): unset, empty, non-numeric, fractional, zero, or negative
+// values are invalid and fall back to the default (with a startup
+// warning, never a silent change); values above
+// IMAGE_FETCH_RATE_LIMIT_MAX are clamped to the maximum (also with
+// a startup warning). The value is read once at module load, i.e.
+// at server start; changing it requires an API process restart.
+export const IMAGE_FETCH_RATE_LIMIT_DEFAULT = 30;
+export const IMAGE_FETCH_RATE_LIMIT_MAX = 600;
+export const IMAGE_FETCH_RATE_LIMIT_ENV = 'DISCOVERY_IMAGE_FETCH_RATE_LIMIT';
 export const IMAGE_FETCH_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+export interface ImageFetchRateLimitConfig {
+  limit: number;
+  raw: string | undefined;
+  source: 'default' | 'env';
+  clamped: boolean;
+  invalid: boolean;
+}
+
+export const parseImageFetchRateLimit = (
+  env: NodeJS.ProcessEnv = process.env,
+): ImageFetchRateLimitConfig => {
+  const raw = env[IMAGE_FETCH_RATE_LIMIT_ENV];
+  const fallback = (invalid: boolean): ImageFetchRateLimitConfig => ({
+    limit: IMAGE_FETCH_RATE_LIMIT_DEFAULT, raw, source: 'default', clamped: false, invalid,
+  });
+  if (raw === undefined || raw.trim() === '') return fallback(false);
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return fallback(true);
+  const parsed = Number.parseInt(trimmed, 10);
+  if (parsed <= 0) return fallback(true);
+  if (parsed > IMAGE_FETCH_RATE_LIMIT_MAX) {
+    return { limit: IMAGE_FETCH_RATE_LIMIT_MAX, raw, source: 'env', clamped: true, invalid: false };
+  }
+  return { limit: parsed, raw, source: 'env', clamped: false, invalid: false };
+};
+
+export const IMAGE_FETCH_RATE_LIMIT_CONFIG = parseImageFetchRateLimit();
+if (IMAGE_FETCH_RATE_LIMIT_CONFIG.clamped) {
+  console.warn(
+    `[discovery-images] ${IMAGE_FETCH_RATE_LIMIT_ENV}=${IMAGE_FETCH_RATE_LIMIT_CONFIG.raw} exceeds the maximum of ${IMAGE_FETCH_RATE_LIMIT_MAX}; clamped to ${IMAGE_FETCH_RATE_LIMIT_CONFIG.limit} fetches per reviewer per hour.`,
+  );
+} else if (IMAGE_FETCH_RATE_LIMIT_CONFIG.invalid) {
+  console.warn(
+    `[discovery-images] ${IMAGE_FETCH_RATE_LIMIT_ENV}=${JSON.stringify(IMAGE_FETCH_RATE_LIMIT_CONFIG.raw)} is not a positive integer; using the default of ${IMAGE_FETCH_RATE_LIMIT_CONFIG.limit} fetches per reviewer per hour.`,
+  );
+} else if (IMAGE_FETCH_RATE_LIMIT_CONFIG.source === 'env') {
+  console.log(
+    `[discovery-images] Image fetch rate limit configured to ${IMAGE_FETCH_RATE_LIMIT_CONFIG.limit} per reviewer per hour via ${IMAGE_FETCH_RATE_LIMIT_ENV}.`,
+  );
+}
+export const IMAGE_FETCH_RATE_LIMIT = IMAGE_FETCH_RATE_LIMIT_CONFIG.limit;
 
 const MAX_NOTE_LENGTH = 2000;
 
@@ -176,8 +236,23 @@ export const createDiscoveryImagesRouter = (
       : { fetched_by_uid: adminUid, fetched_at: { gte: since } };
     const recentFetches = await readPrisma.discovery_image_fetches.count({ where: rateWhere });
     if (recentFetches >= IMAGE_FETCH_RATE_LIMIT) {
+      // Machine-readable retry guidance: the window is rolling, so
+      // budget returns when the OLDEST counted attempt ages out.
+      // retry_after_seconds is that wait (also sent as the standard
+      // Retry-After header by sendError). The fallback of a full
+      // window covers the (in practice impossible) case of a count
+      // at the limit with no readable oldest row.
+      const oldest = await readPrisma.discovery_image_fetches.findFirst({
+        where: rateWhere,
+        orderBy: { fetched_at: 'asc' },
+        select: { fetched_at: true },
+      });
+      const retryAfterSeconds = oldest
+        ? Math.max(1, Math.ceil((oldest.fetched_at.getTime() + IMAGE_FETCH_RATE_WINDOW_MS - Date.now()) / 1000))
+        : Math.ceil(IMAGE_FETCH_RATE_WINDOW_MS / 1000);
       throw tooManyRequests(
         `Image fetch rate limit reached (${IMAGE_FETCH_RATE_LIMIT} per reviewer per hour). Try again later.`,
+        { retry_after_seconds: retryAfterSeconds },
       );
     }
 
