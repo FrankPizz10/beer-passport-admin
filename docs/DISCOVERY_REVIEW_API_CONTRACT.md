@@ -108,6 +108,29 @@ contract is section B1.
 | `getReviewIntent` | GET `/discovery/candidates/:id/review-intent` |
 | `saveReviewIntent` | POST `/discovery/candidates/:id/review-intent` |
 
+## A3. Parallel-PR contracts the fast review queue codes against (NOT yet deployed)
+
+The review queue UI (branch `ui/fast-review-queue`) builds against
+two contracts owned by parallel backend workstreams. Neither is
+live yet; the UI degrades gracefully until they land.
+
+| Contract | Owner | Shape the client assumes |
+| --- | --- | --- |
+| Match suggestions (WS1) | backend PR, not yet merged | GET `/discovery/candidates/:id/match-suggestions` returns `{ candidate_id, suggestions: [{ beer_id, name, brewery_name, abv, barcode, score, evidence: string[] }], exhaustive, scanned }`. Evidence codes: `barcode_exact`, `name_exact`, `name_normalized`, `brewery_match`, `name_similar`, `token_overlap`. |
+| Image-fetch rate limit (WS3) | backend PR, not yet merged | A 429 from POST `/discovery/candidates/:id/image-fetches` may carry `retry_after_seconds` in the error body (`{ error: { ..., retry_after_seconds } }` or top-level). |
+
+Degradation rules the UI follows:
+
+- Suggestions 404 (endpoint not deployed): the suggestions panel
+  hides, a short note says suggestions are not available yet, and
+  manual catalog search remains the way to pick an image-only
+  target. Suggestions never auto-select a target either way.
+- `exhaustive: false`: the panel shows "Suggestions may not cover
+  the whole catalog" with the scanned count.
+- 429 without `retry_after_seconds`: the server's message is shown
+  verbatim. With the field: "Image fetch limit reached - try again
+  in about N minutes" (seconds under a minute).
+
 ## B. Capabilities and their status
 
 ### B1. Review intent (replaces the former field-edits proposal)
