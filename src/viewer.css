@@ -347,6 +347,7 @@
 .approve-step-icon { font-weight: 800; width: 20px; text-align: center; flex-shrink: 0; }
 .approve-step--done { border-color: var(--bp-success); background: var(--bp-success-soft); }
 .approve-step--failed { border-color: var(--bp-error); background: var(--bp-error-soft); }
+.approve-step--blocked { border-color: var(--bp-warning); background: var(--bp-warning-soft); }
 .approve-step--skipped { color: var(--bp-ink-muted); }
 .approve-step-error { color: var(--bp-error); font-weight: 600; }
 .shortcut-hints { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--bp-ink-muted); font-size: var(--bp-font-sm); margin: var(--bp-space-3) 0; }
