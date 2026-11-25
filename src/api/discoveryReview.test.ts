@@ -2,8 +2,12 @@ import { ApiError, apiGet, apiGetBlobUrl, apiPost } from "./client";
 import {
   buildNewBeerIntent,
   diffCandidateFields,
+  evidenceLabel,
+  extractRetryAfterSeconds,
   getManifestComposition,
   httpDiscoveryReviewClient,
+  intentsEqual,
+  isMatchSuggestionsUnavailable,
   isReviewIntentConflict,
   validateFieldValue,
 } from "./discoveryReview";
@@ -260,4 +264,93 @@ test("a version 1 manifest (no kind anywhere) is all new beers", () => {
   );
   expect(composition.newBeerCount).toBe(2);
   expect(composition.imageOnlyCount).toBe(0);
+});
+
+// --- WS1 match suggestions + WS3 rate-limit contract (added with
+// the fast review queue) ---
+
+test("getMatchSuggestions reads the WS1 endpoint", async () => {
+  mockApiGet.mockResolvedValue({
+    candidate_id: 61,
+    suggestions: [
+      {
+        beer_id: 3784,
+        name: "Bud Light",
+        brewery_name: "Anheuser-Busch",
+        abv: 4.2,
+        barcode: "018200530027",
+        score: 0.98,
+        evidence: ["barcode_exact", "name_exact"],
+      },
+    ],
+    exhaustive: false,
+    scanned: 1200,
+  });
+  const resp = await httpDiscoveryReviewClient.getMatchSuggestions(61);
+  expect(mockApiGet).toHaveBeenCalledWith(
+    "/discovery/candidates/61/match-suggestions"
+  );
+  expect(resp.suggestions[0].beer_id).toBe(3784);
+  expect(resp.exhaustive).toBe(false);
+});
+
+test("isMatchSuggestionsUnavailable is true only for a 404 ApiError", () => {
+  expect(isMatchSuggestionsUnavailable(new ApiError(404, "Not found"))).toBe(true);
+  expect(isMatchSuggestionsUnavailable(new ApiError(500, "boom"))).toBe(false);
+  expect(isMatchSuggestionsUnavailable(new Error("nope"))).toBe(false);
+});
+
+test("evidenceLabel maps known codes and passes unknown codes through", () => {
+  expect(evidenceLabel("barcode_exact")).toBe("Barcode matches exactly");
+  expect(evidenceLabel("token_overlap")).toBe("Name shares words");
+  expect(evidenceLabel("something_new")).toBe("something_new");
+});
+
+test("extractRetryAfterSeconds reads both documented body shapes", () => {
+  expect(
+    extractRetryAfterSeconds(
+      new ApiError(429, "slow down", { error: { retry_after_seconds: 900 } })
+    )
+  ).toBe(900);
+  expect(
+    extractRetryAfterSeconds(
+      new ApiError(429, "slow down", { retry_after_seconds: 45 })
+    )
+  ).toBe(45);
+  expect(extractRetryAfterSeconds(new ApiError(429, "slow down"))).toBeNull();
+  expect(extractRetryAfterSeconds(new ApiError(500, "boom", { retry_after_seconds: 5 }))).toBe(5);
+  expect(extractRetryAfterSeconds(new Error("plain"))).toBeNull();
+});
+
+test("intentsEqual compares mode and payload structurally", () => {
+  const a = buildNewBeerIntent({
+    name: "Bud Light",
+    brewery_name: "Budweiser",
+    abv: "4.2",
+    barcode: "018200530027",
+  });
+  const b = buildNewBeerIntent({
+    name: "Bud Light",
+    brewery_name: "Budweiser",
+    abv: "4.2",
+    barcode: "018200530027",
+  });
+  expect(intentsEqual(a, b)).toBe(true);
+  expect(
+    intentsEqual(a, { mode: "image_only", target_beer_id: 3784 })
+  ).toBe(false);
+  expect(
+    intentsEqual(
+      { mode: "image_only", target_beer_id: 3784 },
+      { mode: "image_only", target_beer_id: 3784 }
+    )
+  ).toBe(true);
+  expect(
+    intentsEqual(
+      { mode: "image_only", target_beer_id: 3784 },
+      { mode: "image_only", target_beer_id: 99 }
+    )
+  ).toBe(false);
+  expect(intentsEqual(null, a)).toBe(false);
+  expect(intentsEqual(null, null)).toBe(true);
 });

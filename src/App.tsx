@@ -28,6 +28,8 @@ import DiscoveryCandidatesPage from "./pages/DiscoveryCandidatesPage";
 import DiscoveryCandidateDetailPage from "./pages/DiscoveryCandidateDetailPage";
 import DiscoveryPairPage from "./pages/DiscoveryPairPage";
 import DiscoveryBatchDecisionsPage from "./pages/DiscoveryBatchDecisionsPage";
+import DiscoveryReviewQueuePage from "./pages/DiscoveryReviewQueuePage";
+import DiscoveryGuidedReviewPage from "./pages/DiscoveryGuidedReviewPage";
 
 function AppRoutes() {
   const location = useLocation();
@@ -56,6 +58,8 @@ function AppRoutes() {
           <Route path="discovery/batches/:batchId/candidates" element={<DiscoveryCandidatesPage />} />
           <Route path="discovery/batches/:batchId/decisions" element={<DiscoveryBatchDecisionsPage />} />
           <Route path="discovery/candidates/:id" element={<DiscoveryCandidateDetailPage />} />
+          <Route path="discovery/review-queue" element={<DiscoveryReviewQueuePage />} />
+          <Route path="discovery/review-queue/:candidateId" element={<DiscoveryGuidedReviewPage />} />
           <Route path="discovery/pairs/:pairId" element={<DiscoveryPairPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:id" element={<UserDetailPage />} />

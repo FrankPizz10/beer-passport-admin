@@ -217,7 +217,7 @@
 
 /* Cards and review sections */
 .queue-card { border-color: var(--bp-border); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 16px; overflow-wrap: break-word; }
-.review-section { background: var(--bp-surface); border: 1px solid var(--bp-border); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 18px 20px; margin: 0 0 var(--bp-space-5); }
+.review-section { background: var(--bp-surface); border: 1px solid var(--bp-border); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 16px; margin: 0 0 var(--bp-space-5); }
 .review-section > h2 { margin-top: 0; }
 .review-section-header { display: flex; align-items: center; gap: 10px; margin-bottom: var(--bp-space-2); }
 .review-section-header h2 { margin: 0; font-size: var(--bp-font-xl); }
@@ -297,6 +297,132 @@
   .field-cell-label { display: block; font-size: var(--bp-font-sm); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--bp-ink-muted); margin-bottom: 2px; }
   .review-section { padding: 14px; }
   .admin-main { padding: 14px 12px 32px; }
-  .help-tip-popover { left: auto; right: -8px; }
+  .help-tip-popover { position: fixed; left: 12px; right: 12px; bottom: 12px; top: auto; width: auto; max-width: none; z-index: 200; }
 }
 .admin-shell { overflow-x: clip; }
+
+/* --- Fast review queue + guided review (WS2, AI-assisted) --- */
+
+/* Account menu: email, database target and logout live behind one
+   button so the header stays compact at phone widths. */
+.account-menu-wrap { position: relative; }
+.account-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 80; min-width: 230px; max-width: 82vw; background: var(--bp-surface); color: var(--bp-ink); border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.account-menu .signed-in-email { color: var(--bp-ink); opacity: 1; overflow-wrap: anywhere; }
+.account-menu-email, .account-menu-target { font-size: var(--bp-font-sm); color: var(--bp-ink-muted); overflow-wrap: anywhere; }
+.account-menu button { min-height: 44px; }
+
+/* Queue list */
+.rq-filters { align-items: flex-end; }
+.rq-filters label { display: block; font-size: var(--bp-font-sm); font-weight: 700; color: var(--bp-ink-muted); margin-bottom: 4px; }
+.rq-filter-desc { color: var(--bp-ink-muted); max-width: 78ch; }
+.rq-list { list-style: none; display: flex; flex-direction: column; gap: 10px; margin: var(--bp-space-3) 0; }
+.rq-row { display: flex; gap: 12px; align-items: flex-start; background: var(--bp-surface); border: 1px solid var(--bp-border); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 16px; }
+.rq-row--worked { border-color: var(--bp-accent); background: var(--bp-accent-soft); }
+.rq-check { display: inline-flex; padding-top: 2px; }
+.rq-check input { width: 20px; height: 20px; flex-shrink: 0; }
+.rq-row-main { flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 4px; }
+.rq-row-main a { color: var(--bp-ink); }
+.rq-row-sub { color: var(--bp-ink-muted); }
+.rq-review-btn { flex-shrink: 0; min-height: 44px; align-items: center; }
+.rq-bulk-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: var(--bp-surface-alt); border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius); padding: 12px 16px; margin-top: var(--bp-space-4); }
+.rq-bulk-bar select { padding: 7px 9px; border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius-sm); font: inherit; min-height: 44px; }
+.rq-bulk-note { flex-basis: 100%; font-size: var(--bp-font-sm); color: var(--bp-ink-muted); }
+.rq-bulk-outcomes { border: 1px solid var(--bp-border); border-radius: var(--bp-radius); background: var(--bp-surface); padding: 12px 16px; margin-top: var(--bp-space-4); }
+
+/* Guided review */
+.guided-review { padding-bottom: 96px; }
+.guided-review .review-section { margin-bottom: var(--bp-space-5); }
+.rq-position { color: var(--bp-ink-muted); }
+.technical-details { border: 1px solid var(--bp-border); border-radius: var(--bp-radius-sm); background: var(--bp-surface-alt); padding: 10px 14px; margin-top: var(--bp-space-3); }
+.technical-details summary { cursor: pointer; font-weight: 700; min-height: 32px; display: flex; align-items: center; }
+.suggestions-panel .evidence-chip { background: var(--bp-info-soft); border-color: var(--bp-info); color: var(--bp-info); margin-right: 4px; }
+.guided-hold-reject { border-top: 1px solid var(--bp-border); margin-top: var(--bp-space-5); padding-top: var(--bp-space-4); }
+.guided-hold-reject select, .guided-hold-reject textarea { width: 100%; max-width: 520px; padding: 7px 9px; border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius-sm); font: inherit; margin-bottom: 10px; }
+.guided-approve { border-top: 1px solid var(--bp-border); margin-top: var(--bp-space-5); padding-top: var(--bp-space-4); }
+.approve-flow-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.approve-button { min-height: 44px; padding: 10px 20px; font-size: var(--bp-font-lg); }
+.approve-disabled-reason { color: var(--bp-warning); font-weight: 600; margin-top: 8px; }
+.approve-steps { list-style: none; margin: var(--bp-space-3) 0; display: flex; flex-direction: column; gap: 8px; }
+.approve-step { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--bp-border); border-radius: var(--bp-radius-sm); padding: 10px 12px; background: var(--bp-surface); overflow-wrap: anywhere; }
+.approve-step-icon { font-weight: 800; width: 20px; text-align: center; flex-shrink: 0; }
+.approve-step--done { border-color: var(--bp-success); background: var(--bp-success-soft); }
+.approve-step--failed { border-color: var(--bp-error); background: var(--bp-error-soft); }
+.approve-step--blocked { border-color: var(--bp-warning); background: var(--bp-warning-soft); }
+.approve-step--skipped { color: var(--bp-ink-muted); }
+.approve-step-error { color: var(--bp-error); font-weight: 600; }
+.shortcut-hints { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--bp-ink-muted); font-size: var(--bp-font-sm); margin: var(--bp-space-3) 0; }
+.shortcut-hints kbd, .guided-review kbd { border: 1px solid var(--bp-border-strong); border-bottom-width: 2px; border-radius: 4px; background: var(--bp-surface); padding: 0 5px; font-family: inherit; font-size: 12px; }
+
+/* Sticky action bar: always reachable, never covering content
+   because .guided-review reserves bottom padding above it. */
+.guided-action-bar { position: sticky; bottom: 0; z-index: 40; display: flex; gap: 10px; align-items: center; background: var(--bp-surface); border: 1px solid var(--bp-border-strong); border-radius: var(--bp-radius); box-shadow: var(--bp-shadow); padding: 10px 12px; margin-top: var(--bp-space-4); }
+.guided-action-bar .btn { min-height: 44px; }
+.guided-action-position { flex: 1; text-align: center; color: var(--bp-ink-muted); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+
+/* Touch targets for the new controls on coarse pointers. */
+@media (pointer: coarse) {
+  .rq-bulk-bar button, .guided-hold-reject button, .suggestions-panel button,
+  .guided-image-panel button, .approve-flow-header button { min-height: 44px; padding: 10px 16px; }
+  .rq-filters input, .rq-filters select { min-height: 44px; }
+}
+
+/* Phone widths (440px and 390px): stacked cards, full-width
+   actions, compact header (target chip moves into the account
+   menu), sticky bar wraps without obscuring content. */
+@media (max-width: 760px) {
+  .header-target-chip { display: none; }
+  .guided-review .review-section { padding: 16px; }
+  .rq-row { flex-wrap: wrap; padding: 16px; }
+  .rq-row-main { flex-basis: calc(100% - 40px); }
+  .rq-review-btn { flex-basis: 100%; justify-content: center; }
+  .guided-action-bar { flex-wrap: wrap; }
+  .guided-action-bar .btn { flex: 1 1 40%; justify-content: center; }
+  .guided-action-position { flex-basis: 100%; order: -1; }
+  .approve-button { width: 100%; justify-content: center; }
+  .shortcut-hints { display: none; }
+}
+
+/* WS4 mobile-validation fixes (defects found in device emulation
+   at 440px and 390px; see the WS4 section of PR_NOTES_QUEUE.md). */
+
+/* The queue filter wrappers must be allowed to shrink below their
+   content width, or a long batch name pushes the select past the
+   right edge of a 390px viewport and clips its dropdown arrow. */
+.rq-filters > div { min-width: 0; }
+.rq-filters select, .rq-filters input { max-width: 100%; }
+
+/* Mode options: never let flex shrink collapse the radio label
+   into a one-word-per-line column; the description wraps instead.
+   On phones the label and description stack. */
+.mode-option label { flex-shrink: 0; }
+.mode-option .mode-desc { min-width: 0; }
+
+/* The intent editor is a bare fieldset; drop the browser default
+   border/padding so it does not double-border the mode cards and
+   field rows inside it. */
+fieldset.intent-form { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+/* Decision/note textareas sit under their labels at full width
+   instead of floating inline beside them on wide screens. */
+.guided-image-panel textarea,
+.guided-hold-reject textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; }
+
+/* The intent editor's own buttons (catalog search, choose/confirm/
+   change target) and its search input get the same 44px touch
+   targets as the rest of the guided review. */
+@media (pointer: coarse) {
+  .guided-intent-editor button:not(.help-tip-button), fieldset.intent-form button:not(.help-tip-button) { min-height: 44px; }
+  #guided-target-search { min-height: 44px; }
+  /* HelpTip buttons keep their fixed round size: the container
+     rules above and in the WS2 block would otherwise stretch them
+     into ovals (seen in the match suggestions panel). */
+  button.help-tip-button { min-height: 0; padding: 0; }
+}
+
+/* Phone widths: stack the mode options and put the catalog target
+   search on its own full-width row. */
+@media (max-width: 760px) {
+  .mode-option { flex-direction: column; gap: 4px; }
+  #guided-target-search { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; }
+  #guided-target-search + button { margin-top: 8px; }
+}

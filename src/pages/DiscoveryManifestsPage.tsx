@@ -32,7 +32,10 @@ const DiscoveryManifestsPage: React.FC = () => {
         canonical bytes with a SHA-256 hash. Only an approved manifest
         whose hash still matches can be imported, by the operator
         executor, and any catalog change after approval makes it
-        stale.
+        stale. This is the later, exact-hash approval step: the
+        per-candidate work happens earlier in the Review Queue and
+        Discovery Batches, and approving a manifest is not the same
+        as importing it.
       </p>
       {manifests.length === 0 ? (
         <EmptyState message="No discovery import manifests found. Build one from a batch once its candidates are selected." />
