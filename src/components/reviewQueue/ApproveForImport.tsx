@@ -1,11 +1,16 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   DiscoveryReviewClient,
   ReviewIntent,
   httpDiscoveryReviewClient,
 } from "../../api/discoveryReview";
 import HelpTip from "../HelpTip";
-import { ApproveStep, runApproveFlow } from "./approveFlow";
+import {
+  ApproveFlowResult,
+  ApproveStep,
+  ReviewedImageSnapshot,
+  runApproveFlow,
+} from "./approveFlow";
 
 // Approve-for-import: ONE reviewer action that performs, in order,
 // the intent save, the hash-bound image approval, and the
@@ -26,6 +31,8 @@ export interface ApproveRunner {
   ready: boolean;
   attempted: boolean;
   hasFailure: boolean;
+  hasBlock: boolean;
+  notReadyReasons: string[];
   conflictStep: ApproveStep | undefined;
   run: () => Promise<void>;
 }
@@ -34,15 +41,33 @@ export function useApproveForImport(input: {
   candidateId: number;
   client?: DiscoveryReviewClient;
   desiredIntent: ReviewIntent | null;
+  // The exact stored preview the reviewer has seen (see
+  // approveFlow.ts); the image step approves that fetch or stops.
+  reviewedImage?: ReviewedImageSnapshot | null;
+  // The saved intent this session started from, so a resume never
+  // silently overwrites another reviewer's change.
+  baselineIntent?: { id: number; intent: ReviewIntent } | null;
   onCompleted?: () => void;
+  onResult?: (result: ApproveFlowResult) => void;
 }): ApproveRunner {
   const client = input.client ?? httpDiscoveryReviewClient;
   const [steps, setSteps] = useState<ApproveStep[] | null>(null);
   const [running, setRunning] = useState(false);
   const [ready, setReady] = useState(false);
   const [attempted, setAttempted] = useState(false);
+  const [notReadyReasons, setNotReadyReasons] = useState<string[]>([]);
+  // The last intent THIS flow saved in this session: it becomes the
+  // baseline for the next run, so a resume after the reviewer edits
+  // their choice is not mistaken for another reviewer's change.
+  const flowSavedRef = useRef<{ id: number; intent: ReviewIntent } | null>(
+    null
+  );
+  useEffect(() => {
+    flowSavedRef.current = null;
+  }, [input.candidateId]);
 
   const hasFailure = steps?.some((s) => s.status === "failed") ?? false;
+  const hasBlock = steps?.some((s) => s.status === "blocked") ?? false;
   const conflictStep = steps?.find((s) => s.conflict);
 
   const run = async () => {
@@ -55,10 +80,16 @@ export function useApproveForImport(input: {
         client,
         candidateId: input.candidateId,
         desiredIntent: input.desiredIntent,
+        reviewedImage: input.reviewedImage ?? null,
+        baselineIntent:
+          flowSavedRef.current ?? input.baselineIntent,
         onSteps: setSteps,
       });
       setSteps(result.steps);
       setReady(result.ready);
+      setNotReadyReasons(result.notReadyReasons);
+      if (result.savedIntent) flowSavedRef.current = result.savedIntent;
+      if (input.onResult) input.onResult(result);
       if (result.ready && input.onCompleted) input.onCompleted();
     } finally {
       setRunning(false);
@@ -71,6 +102,8 @@ export function useApproveForImport(input: {
     ready,
     attempted,
     hasFailure,
+    hasBlock,
+    notReadyReasons,
     conflictStep,
     run,
   };
@@ -82,12 +115,21 @@ const STEP_ICON: Record<ApproveStep["status"], string> = {
   done: "✓",
   skipped: "–",
   failed: "✗",
+  blocked: "!",
 };
 
 export const ApproveChecklist: React.FC<{
   runner: ApproveRunner;
 }> = ({ runner }) => {
-  const { steps, ready, attempted, hasFailure, conflictStep } = runner;
+  const {
+    steps,
+    ready,
+    attempted,
+    hasFailure,
+    hasBlock,
+    notReadyReasons,
+    conflictStep,
+  } = runner;
   if (!steps && !ready) return null;
   return (
     <div className="approve-checklist">
@@ -107,7 +149,11 @@ export const ApproveChecklist: React.FC<{
                 {step.error ? (
                   <span className="approve-step-error" role="alert">
                     {" "}
-                    Failed: {step.error}
+                    {step.status === "blocked"
+                      ? `Blocked: ${step.error}`
+                      : step.status === "failed"
+                        ? `Failed: ${step.error}`
+                        : step.error}
                   </span>
                 ) : null}
               </span>
@@ -130,6 +176,25 @@ export const ApproveChecklist: React.FC<{
           only what is missing.
         </p>
       )}
+      {attempted && hasBlock && (
+        <p role="note">
+          A step above is blocked: it names exactly what must happen
+          before this candidate can be approved (for an image block,
+          view the current stored preview, or fetch a new image if
+          the reviewed one was rejected). Nothing further was
+          recorded after the blocked step.
+        </p>
+      )}
+      {attempted && !ready && notReadyReasons.length > 0 && (
+        <div className="callout callout-warning" role="status">
+          <strong>Not ready for import yet.</strong>
+          <ul>
+            {notReadyReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {ready && (
         <div className="callout callout-info" role="status">
           <strong>Ready for import.</strong> The intent, image
@@ -150,12 +215,24 @@ const ApproveForImport: React.FC<{
   // must stay disabled; disabledReason explains why, visibly.
   desiredIntent: ReviewIntent | null;
   disabledReason: string | null;
+  reviewedImage?: ReviewedImageSnapshot | null;
+  baselineIntent?: { id: number; intent: ReviewIntent } | null;
   onCompleted?: () => void;
-}> = ({ candidateId, client, desiredIntent, disabledReason, onCompleted }) => {
+}> = ({
+  candidateId,
+  client,
+  desiredIntent,
+  disabledReason,
+  reviewedImage,
+  baselineIntent,
+  onCompleted,
+}) => {
   const runner = useApproveForImport({
     candidateId,
     client,
     desiredIntent,
+    reviewedImage,
+    baselineIntent,
     onCompleted,
   });
   return (
@@ -170,14 +247,14 @@ const ApproveForImport: React.FC<{
         >
           {runner.running
             ? "Approving..."
-            : runner.hasFailure
+            : runner.hasFailure || runner.hasBlock
               ? "Resume - finish the remaining steps"
               : "Approve for import"}
         </button>
         <HelpTip topic="approve for import">
           Approve for import records, in order: your review intent,
-          the image approval for the stored preview (when your choice
-          uses the image and none is recorded yet), and the candidate
+          the image approval bound to the exact stored preview you
+          viewed (when your choice uses the image), and the candidate
           selection. It does not publish or import anything: a
           manifest still has to be built, approved by its exact hash,
           and imported by the operator.

@@ -76,15 +76,50 @@ export interface MatchSuggestion {
   evidence: string[];
 }
 
+// Completeness reporting for the suggestions search. The current
+// (WS1) response carries only the legacy `exhaustive` flag below;
+// the corrected contract proposed in
+// docs/DISCOVERY_REVIEW_API_CONTRACT.md section A3 adds this object
+// so the UI can distinguish "the token-driven candidate pool query
+// ran to completion" from "every catalog beer was actually scored".
+// The client tolerates BOTH shapes: when `completeness` is absent,
+// nothing about the search is treated as affirmatively complete.
+export interface MatchSuggestionsCompleteness {
+  // The token-driven pool query finished without hitting the scan
+  // cap. This says nothing about beers the token prefilter never
+  // retrieved (e.g. a catalog name sharing no token with the staged
+  // name), so it is NOT a complete catalog search on its own.
+  token_query_complete: boolean;
+  // True only when every catalog beer was actually scored, so no
+  // match could have been missed by the retrieval stage.
+  catalog_exhaustive: boolean;
+  // Retrieval/scoring stages that hit a bound and may have dropped
+  // candidates: any of "barcode_exact", "name_exact",
+  // "similarity_scan".
+  stages_truncated: string[];
+}
+
 export interface MatchSuggestions {
   candidate_id: number;
   suggestions: MatchSuggestion[];
-  // False when the scan was bounded and may have missed catalog
-  // beers: the UI must say suggestions may not cover the whole
-  // catalog instead of implying exhaustiveness.
+  // Legacy flag from the WS1 response. True means only that the
+  // bounded token scan was not truncated by its cap; it does NOT
+  // mean the whole catalog was searched (a name sharing no literal
+  // token with the staged name is never retrieved). The UI must not
+  // present this as a complete catalog search.
   exhaustive: boolean;
   scanned: number;
+  // Corrected completeness reporting (proposed contract, section
+  // A3). Absent on responses from the current backend.
+  completeness?: MatchSuggestionsCompleteness;
 }
+
+// True only when the response AFFIRMATIVELY reports a complete
+// catalog search under the corrected semantics. The legacy
+// `exhaustive: true` never qualifies on its own.
+export const suggestionsSearchComplete = (
+  data: MatchSuggestions
+): boolean => data.completeness?.catalog_exhaustive === true;
 
 // Human-readable labels for the evidence codes the matcher emits.
 export const EVIDENCE_LABELS: Record<string, string> = {
