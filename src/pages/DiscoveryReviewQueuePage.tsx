@@ -79,9 +79,16 @@ const DiscoveryReviewQueuePage: React.FC<{
   const [bulkOutcomes, setBulkOutcomes] = useState<BulkOutcome[] | null>(
     null
   );
-  const [lastBulkDecision, setLastBulkDecision] = useState<
-    "hold" | "reject" | null
-  >(null);
+  // The confirmed bulk run, snapshotted at confirmation time: the
+  // exact decision, reason, and item set the reviewer confirmed.
+  // Retry uses ONLY this snapshot, so editing the reason input,
+  // changing the filter, or reloading rows afterwards can never
+  // change what a retry applies or which items it touches.
+  const [bulkSnapshot, setBulkSnapshot] = useState<{
+    decision: "hold" | "reject";
+    reason: string;
+    items: { id: number; name: string }[];
+  } | null>(null);
   const [workedId, setWorkedId] = useState<number | null>(() => {
     try {
       const raw = sessionStorage.getItem(QUEUE_WORKED_KEY);
@@ -195,6 +202,7 @@ const DiscoveryReviewQueuePage: React.FC<{
     setChecked(new Set());
     setBulkConfirm(null);
     setBulkOutcomes(null);
+    setBulkSnapshot(null);
   }, [batchId, filter.id, sub, page]);
 
   // Scroll the returned-to item into view.
@@ -225,18 +233,18 @@ const DiscoveryReviewQueuePage: React.FC<{
 
   const runBulk = async (
     decision: "hold" | "reject",
-    ids: number[]
+    reason: string,
+    items: { id: number; name: string }[]
   ): Promise<BulkOutcome[]> => {
     const outcomes: BulkOutcome[] = [];
-    for (const id of ids) {
-      const row = rows.find((r) => r.id === id);
+    for (const item of items) {
       try {
-        await client.decideCandidate(id, { decision, reason: bulkReason });
-        outcomes.push({ id, name: row?.name ?? `#${id}`, ok: true });
+        await client.decideCandidate(item.id, { decision, reason });
+        outcomes.push({ id: item.id, name: item.name, ok: true });
       } catch (e) {
         outcomes.push({
-          id,
-          name: row?.name ?? `#${id}`,
+          id: item.id,
+          name: item.name,
           ok: false,
           error: e instanceof Error ? e.message : "Decision failed.",
         });
@@ -247,27 +255,47 @@ const DiscoveryReviewQueuePage: React.FC<{
 
   const confirmBulk = async () => {
     if (!bulkConfirm || bulkReason === "") return;
-    const decision = bulkConfirm;
+    // Snapshot BEFORE running: the decision, the reason, and the
+    // exact items (with the names shown in the confirmation), so
+    // the run and any later retry are immune to input changes.
+    const snapshot = {
+      decision: bulkConfirm,
+      reason: bulkReason,
+      items: rows
+        .filter((r) => checked.has(r.id))
+        .map((r) => ({ id: r.id, name: r.name })),
+    };
+    if (snapshot.items.length === 0) return;
+    setBulkSnapshot(snapshot);
     setBulkBusy(true);
-    const outcomes = await runBulk(decision, Array.from(checked));
+    const outcomes = await runBulk(
+      snapshot.decision,
+      snapshot.reason,
+      snapshot.items
+    );
     setBulkOutcomes(outcomes);
-    setLastBulkDecision(decision);
     setBulkBusy(false);
     setBulkConfirm(null);
     setChecked(new Set(outcomes.filter((o) => !o.ok).map((o) => o.id)));
     setReloadTick((t) => t + 1);
   };
 
-  // Retry ONLY the failed items, with the same decision and reason
-  // as the confirmed run. Successful items are never re-decided.
+  // Retry ONLY the failed items from the confirmed snapshot, with
+  // the snapshot's decision and ORIGINALLY confirmed reason - even
+  // if the reason input, the note field, or the filter has changed
+  // since. Successful items are never re-decided.
   const retryFailed = async () => {
-    if (!bulkOutcomes || !lastBulkDecision || bulkReason === "") return;
-    const failed = bulkOutcomes.filter((o) => !o.ok);
-    if (failed.length === 0) return;
+    if (!bulkOutcomes || !bulkSnapshot) return;
+    const failedIds = new Set(
+      bulkOutcomes.filter((o) => !o.ok).map((o) => o.id)
+    );
+    if (failedIds.size === 0) return;
+    const items = bulkSnapshot.items.filter((i) => failedIds.has(i.id));
     setBulkBusy(true);
     const retried = await runBulk(
-      lastBulkDecision,
-      failed.map((o) => o.id)
+      bulkSnapshot.decision,
+      bulkSnapshot.reason,
+      items
     );
     const byId = new Map(retried.map((o) => [o.id, o]));
     setBulkOutcomes(
@@ -599,8 +627,10 @@ const DiscoveryReviewQueuePage: React.FC<{
                   >
                     Retry failed only
                   </button>{" "}
-                  retries just those items with the same decision and
-                  reason; succeeded items are not decided again.
+                  retries just those items with the decision and the
+                  originally confirmed reason, even if the reason
+                  input has changed since; succeeded items are not
+                  decided again.
                 </p>
               )}
             </div>

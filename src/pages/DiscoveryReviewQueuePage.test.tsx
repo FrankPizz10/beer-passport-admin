@@ -236,3 +236,66 @@ test("bulk hold runs sequentially with per-item outcomes and retries only the fa
   );
   expect(fake.decideCalls.map((c) => c.id)).toEqual([61, 62, 63, 62]);
 });
+
+test("bulk retry uses the originally confirmed reason and only the failed ids, even after inputs change", async () => {
+  const fake = makeFake([
+    row(),
+    row({ id: 62, name: "Coors Light" }),
+    row({ id: 63, name: "Miller Lite" }),
+  ]);
+  fake.failIds.add(62);
+  renderQueue(fake.client);
+  await screen.findByText("Bud Light");
+
+  for (const name of ["Bud Light", "Coors Light", "Miller Lite"]) {
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: `Select ${name} for bulk action`,
+      })
+    );
+  }
+  fireEvent.change(screen.getByLabelText(/Reason \(required/), {
+    target: { value: "other" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Hold checked" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Confirm hold for 3 candidates",
+    })
+  );
+  expect(await screen.findByText("Bulk results")).toBeInTheDocument();
+  expect(fake.decideCalls.map((c) => c.id)).toEqual([61, 62, 63]);
+  expect(fake.decideCalls.every((c) => c.reason === "other")).toBe(true);
+
+  // The reviewer changes the reason input AFTER the partial
+  // failure. The retry must still apply the confirmed snapshot:
+  // reason "other", failed id 62 only.
+  fireEvent.change(screen.getByLabelText(/Reason \(required/), {
+    target: { value: "missing_brewery" },
+  });
+  fake.failIds.delete(62);
+  // findByRole, not getByRole: the post-confirm list reload briefly
+  // unmounts the outcomes block, so the button can need a moment
+  // to reappear.
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Retry failed only" })
+  );
+  await waitFor(() =>
+    expect(screen.getByText(/Coors Light \(#62\) - done/)).toBeInTheDocument()
+  );
+  expect(fake.decideCalls.map((c) => c.id)).toEqual([61, 62, 63, 62]);
+  expect(fake.decideCalls[3].reason).toBe("other");
+  expect(fake.decideCalls[3].decision).toBe("hold");
+});
+
+test("an unrecognized image status is shown as unknown, never as no image", async () => {
+  const fake = makeFake([
+    row({ image_status_normalized: "some_future_status" }),
+    row({ id: 62, name: "Coors Light", image_status_normalized: null }),
+  ]);
+  renderQueue(fake.client);
+  expect(await screen.findByText("Bud Light")).toBeInTheDocument();
+  expect(screen.getByText(/Image: unknown/)).toBeInTheDocument();
+  // null is the server's own not-staged value (see queueFilters).
+  expect(screen.getByText(/Image: not staged/)).toBeInTheDocument();
+});
