@@ -109,7 +109,7 @@ run('discovery match suggestions against the disposable database', () => {
     const res = await auth(request(app).get(`/admin-api/v1/discovery/candidates/${budCandidateId}/match-suggestions`));
     expect(res.status).toBe(200);
     expect(res.body.candidate_id).toBe(budCandidateId);
-    expect(res.body.exhaustive).toBe(true);
+    expect(res.body.exhaustive).toBe(false);
     expect(res.body.scanned).toBeGreaterThan(0);
     const first = res.body.suggestions[0];
     expect(first.beer_id).toBe(budLightId);
@@ -127,11 +127,11 @@ run('discovery match suggestions against the disposable database', () => {
     expect(res.body.suggestions[0].evidence).toContain('barcode_exact');
   });
 
-  it('a no-match candidate returns an empty list with exhaustive=true', async () => {
+  it('a no-match candidate returns an empty list with exhaustive=false', async () => {
     const res = await auth(request(app).get(`/admin-api/v1/discovery/candidates/${noMatchCandidateId}/match-suggestions`));
     expect(res.status).toBe(200);
     expect(res.body.suggestions).toEqual([]);
-    expect(res.body.exhaustive).toBe(true);
+    expect(res.body.exhaustive).toBe(false);
   });
 
   it('404s for a candidate that does not exist', async () => {

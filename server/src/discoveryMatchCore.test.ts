@@ -128,7 +128,7 @@ const beerRow = (id: number, name: string, breweryName: string, upc: string | nu
 });
 
 describe('findMatchSuggestions (stubbed staged access)', () => {
-  it('returns ranked suggestions with scanned count and exhaustive=true under the cap', async () => {
+  it('returns ranked suggestions with scanned count and exhaustive=false under the cap', async () => {
     const candidate = { id: 61, name: 'Bud Light', brewery_name: 'Budweiser', barcode: null };
     const beers = [beerRow(3784, 'Bud Light', 'Anheuser-Busch'), beerRow(41, 'Bud Light Lime', 'Anheuser-Busch')];
     const result = await findMatchSuggestions(stubPrisma(candidate, beers), 61);
@@ -136,16 +136,16 @@ describe('findMatchSuggestions (stubbed staged access)', () => {
     expect(result!.candidate_id).toBe(61);
     expect(result!.suggestions[0].beer_id).toBe(3784);
     expect(result!.suggestions[0].barcode).toBeNull();
-    expect(result!.exhaustive).toBe(true);
+    expect(result!.exhaustive).toBe(false);
     expect(result!.scanned).toBe(2);
   });
 
-  it('returns an empty list with exhaustive=true when nothing plausibly matches', async () => {
+  it('returns an empty list with exhaustive=false when nothing plausibly matches', async () => {
     const candidate = { id: 62, name: 'Zqx Wobble Juice', brewery_name: 'Nowhere Brewing', barcode: null };
     const beers = [beerRow(3784, 'Bud Light', 'Anheuser-Busch')];
     const result = await findMatchSuggestions(stubPrisma(candidate, beers), 62);
     expect(result!.suggestions).toEqual([]);
-    expect(result!.exhaustive).toBe(true);
+    expect(result!.exhaustive).toBe(false);
   });
 
   it('sets exhaustive=false and stops scoring at the cap when the scan truncates', async () => {

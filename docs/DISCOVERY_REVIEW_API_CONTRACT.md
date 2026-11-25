@@ -115,7 +115,7 @@ Response 200:
       "abv": 4.2, "barcode": "018200530401", "score": 86,
       "evidence": ["name_exact"] }
   ],
-  "exhaustive": true,
+  "exhaustive": false,
   "scanned": 3
 }
 ```
@@ -125,11 +125,9 @@ Response 200:
   `name_similar`, `token_overlap`. Brewery evidence alone never
   produces a suggestion; every suggestion carries at least one
   name-side or barcode signal.
-- `exhaustive` is false when the bounded similarity scan could not
-  consider the whole catalog (scan cap, default 500 rows scored,
-  `DISCOVERY_MATCH_SCAN_CAP` override); the UI must then say the
-  list is not exhaustive. `scanned` is how many catalog rows were
-  actually evaluated.
+- `exhaustive` is always false: token retrieval and capped exact
+  lookups can miss matches even below the scan cap. `scanned` is
+  how many catalog rows were actually evaluated.
 - Refusals: 404 when the candidate does not exist (the sibling
   `not_found` shape), 503 when no read client is configured.
 - The endpoint is advisory: it records nothing, selects nothing,

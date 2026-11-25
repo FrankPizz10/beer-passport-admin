@@ -59,7 +59,7 @@ describe('GET /discovery/candidates/:id/match-suggestions (app wiring)', () => {
     const res = await auth(request(app).get('/admin-api/v1/discovery/candidates/61/match-suggestions'));
     expect(res.status).toBe(200);
     expect(res.body.candidate_id).toBe(61);
-    expect(res.body.exhaustive).toBe(true);
+    expect(res.body.exhaustive).toBe(false);
     expect(typeof res.body.scanned).toBe('number');
     expect(res.body.suggestions[0]).toEqual({
       beer_id: 3784,

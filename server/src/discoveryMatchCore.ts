@@ -372,7 +372,7 @@ export const findMatchSuggestions = async (
   // Stage 3: bounded similarity scan over distinctive tokens of the
   // candidate name (budget 4) and brewery (budget 2). One extra row
   // is requested so truncation is detectable.
-  let exhaustive = true;
+  let exhaustive = false; // Token retrieval cannot prove that all fuzzy matches were considered.
   const nameTokens = distinctiveTokens(normalizeBeerName(candidate.name), 4);
   const breweryTokens = distinctiveTokens(normalizeBreweryName(candidate.brewery_name || ''), 2);
   const scanTokens = [...nameTokens, ...breweryTokens.filter((t) => !nameTokens.includes(t))];

@@ -186,8 +186,9 @@ API (viewer role, existing admin auth):
   `name_exact`, `name_normalized`, `brewery_match`, `name_similar`,
   `token_overlap`), an `exhaustive` flag and a `scanned` count. The
   similarity scan is bounded (default 500 rows scored,
-  `DISCOVERY_MATCH_SCAN_CAP`); `exhaustive` is false when the bound
-  binds. Read-only and advisory: it records and selects nothing.
+  `DISCOVERY_MATCH_SCAN_CAP`); `exhaustive` is always false because
+  token retrieval and capped exact queries can miss matches.
+  Read-only and advisory: it records and selects nothing.
 
 UI: the Discovery section in the admin nav (Batches, per-batch
 Candidates, Candidate detail).
