@@ -94,6 +94,48 @@ Shapes the UI depends on:
   is exactly `{sha256}`; refusals: 503 unconfigured, 403 not
   allowlisted, 400 malformed hash, 422 hash mismatch, 409 not draft.
 
+## A3. Proposed in the matching PR (not yet in master)
+
+Added by the WS1 matching workstream (branch
+`discovery/match-suggestions`); listed here as PROPOSED until that
+PR merges. One new read-only endpoint, same auth and read-only
+viewer posture as the other discovery reads:
+
+| Operation | Method and path | Implemented in |
+| --- | --- | --- |
+| Match suggestions | GET `/discovery/candidates/:id/match-suggestions` | discoveryMatch.ts + discoveryMatchCore.ts |
+
+Response 200:
+
+```json
+{
+  "candidate_id": 61,
+  "suggestions": [
+    { "beer_id": 3784, "name": "Bud Light", "brewery_name": "Anheuser-Busch",
+      "abv": 4.2, "barcode": "018200530401", "score": 86,
+      "evidence": ["name_exact"] }
+  ],
+  "exhaustive": true,
+  "scanned": 3
+}
+```
+
+- `score` is an integer 0-100. `evidence` values come only from:
+  `barcode_exact`, `name_exact`, `name_normalized`, `brewery_match`,
+  `name_similar`, `token_overlap`. Brewery evidence alone never
+  produces a suggestion; every suggestion carries at least one
+  name-side or barcode signal.
+- `exhaustive` is false when the bounded similarity scan could not
+  consider the whole catalog (scan cap, default 500 rows scored,
+  `DISCOVERY_MATCH_SCAN_CAP` override); the UI must then say the
+  list is not exhaustive. `scanned` is how many catalog rows were
+  actually evaluated.
+- Refusals: 404 when the candidate does not exist (the sibling
+  `not_found` shape), 503 when no read client is configured.
+- The endpoint is advisory: it records nothing, selects nothing,
+  and never returns a chosen target. Accepting a suggestion remains
+  the reviewer's explicit audited review-intent action (B1).
+
 ## A2. Supplied contract (implemented by Codex; live in production)
 
 Supplied by Frank on 2026-11-24 from Codex's backend
