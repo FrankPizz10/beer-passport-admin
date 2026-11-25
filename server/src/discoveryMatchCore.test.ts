@@ -138,6 +138,7 @@ describe('findMatchSuggestions (stubbed staged access)', () => {
     expect(result!.suggestions[0].barcode).toBeNull();
     expect(result!.exhaustive).toBe(false);
     expect(result!.scanned).toBe(2);
+    expect(result!.completeness).toEqual({ token_query_complete: true, catalog_exhaustive: false, stages_truncated: [] });
   });
 
   it('returns an empty list with exhaustive=false when nothing plausibly matches', async () => {
@@ -146,6 +147,18 @@ describe('findMatchSuggestions (stubbed staged access)', () => {
     const result = await findMatchSuggestions(stubPrisma(candidate, beers), 62);
     expect(result!.suggestions).toEqual([]);
     expect(result!.exhaustive).toBe(false);
+    expect(result!.completeness.catalog_exhaustive).toBe(false);
+  });
+
+  it('does not claim catalog completeness when a typo shares no searchable token', async () => {
+    const candidate = { id: 66, name: 'Budlite', brewery_name: null, barcode: null };
+    const result = await findMatchSuggestions(stubPrisma(candidate, [
+      beerRow(3784, 'Bud Light', 'Anheuser-Busch'),
+    ]), 66);
+    expect(result!.suggestions).toEqual([]);
+    expect(result!.completeness).toEqual({
+      token_query_complete: true, catalog_exhaustive: false, stages_truncated: [],
+    });
   });
 
   it('sets exhaustive=false and stops scoring at the cap when the scan truncates', async () => {
@@ -154,6 +167,7 @@ describe('findMatchSuggestions (stubbed staged access)', () => {
     const result = await findMatchSuggestions(stubPrisma(candidate, beers), 63, { scanCap: 5 });
     expect(result!.exhaustive).toBe(false);
     expect(result!.scanned).toBeLessThanOrEqual(5 + 50); // scan stage capped; exact stages bounded separately
+    expect(result!.completeness.stages_truncated).toContain('similarity_scan');
     // The scan stage itself scored at most the cap.
     expect(result!.suggestions.length).toBeGreaterThan(0);
   });
@@ -161,6 +175,16 @@ describe('findMatchSuggestions (stubbed staged access)', () => {
   it('returns null for a missing candidate (route maps to 404)', async () => {
     const result = await findMatchSuggestions(stubPrisma(null, []), 999);
     expect(result).toBeNull();
+  });
+
+  it('reports truncation of barcode and exact-name lookups independently', async () => {
+    const candidate = { id: 65, name: 'Same Beer', brewery_name: 'Example', barcode: '123' };
+    const beers = Array.from({ length: 51 }, (_, i) => beerRow(i + 1, 'Same Beer', 'Example', '123'));
+    const result = await findMatchSuggestions(stubPrisma(candidate, beers), 65, { scanCap: 100 });
+    expect(result!.completeness).toEqual({
+      token_query_complete: true, catalog_exhaustive: false,
+      stages_truncated: ['barcode_exact', 'name_exact'],
+    });
   });
 
   it('surfaces a barcode match even when the name tokens would not scan it in', async () => {
