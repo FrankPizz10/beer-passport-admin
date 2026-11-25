@@ -89,7 +89,15 @@ export const queueFilterDef = (id: string | null): QueueFilterDef =>
   QUEUE_FILTERS.find((f) => f.id === id) ?? QUEUE_FILTERS[0];
 
 // Short text for a row's image state, from the normalized staging
-// status. Text, never color alone.
+// status. Text, never color alone. The list serializer
+// (server/src/routes/discovery.ts, serializeCandidateListRow)
+// always emits the image_status_normalized key, but the column is
+// nullable: null is the server's own "not staged" value (the list
+// filter maps null to the not_staged filter value, and the batch
+// counts group null under 'not_staged'). Any OTHER value the
+// client does not recognize - an absent field from an older API,
+// or a status added server-side later - is reported as unknown,
+// never silently presented as "No image" or "not staged".
 export const imageIndicator = (candidate: DiscoveryCandidate): string => {
   switch (candidate.image_status_normalized) {
     case "verified":
@@ -100,8 +108,10 @@ export const imageIndicator = (candidate: DiscoveryCandidate): string => {
       return "Image: staging check failed";
     case "none":
       return "No image";
-    default:
+    case null:
       return "Image: not staged";
+    default:
+      return "Image: unknown";
   }
 };
 
