@@ -21,8 +21,27 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.classify.outputs.frontend }}
+      backend: ${{ steps.classify.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/classify-ci-changes.cjs >> "$GITHUB_OUTPUT"
+
   client:
     name: Client (CRA, repo root)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
@@ -52,6 +71,8 @@ jobs:
 
   server:
     name: API (Express + Prisma, server/)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -89,6 +110,8 @@ jobs:
 
   image-scan:
     name: API image vulnerability scan
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,8 +141,8 @@ jobs:
 
   deploy:
     name: Publish and deploy API
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master' && vars.BP_AUTO_DEPLOY_ENABLED == 'true'
-    needs: [client, server, image-scan]
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master' && vars.BP_AUTO_DEPLOY_ENABLED == 'true' && needs.changes.outputs.backend == 'true'
+    needs: [changes, server, image-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -138,7 +161,7 @@ jobs:
       - name: Refuse an obsolete release
         run: |
           git fetch origin master
-          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+          node scripts/classify-ci-changes.cjs --backend-unchanged "$GITHUB_SHA" origin/master
       - name: Configure AWS identity
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -217,7 +240,7 @@ jobs:
           set -euo pipefail
           [[ "$MANAGED_NODE" =~ ^mi-[0-9a-f]+$ ]]
           git fetch origin master
-          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+          node scripts/classify-ci-changes.cjs --backend-unchanged "$GITHUB_SHA" origin/master
           params="$(jq -nc --arg digest "$DIGEST" '{Digest:[$digest]}')"
           id="$(aws ssm send-command --instance-ids "$MANAGED_NODE" --document-name BeerPassportDeployAdmin --document-version 2 --parameters "$params" --query 'Command.CommandId' --output text)"
           for attempt in $(seq 1 72); do
