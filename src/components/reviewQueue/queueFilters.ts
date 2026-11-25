@@ -130,6 +130,7 @@ export interface QueueState {
   sub?: string;
   page: number;
   pageSize: number;
+  q?: string;
 }
 
 export const readStoredQueueState = (): QueueState | null => {
