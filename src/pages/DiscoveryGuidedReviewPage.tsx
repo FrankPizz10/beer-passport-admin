@@ -99,6 +99,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
     : readStoredQueueState()?.batchId ?? null;
   const filter = queueFilterDef(searchParams.get("filter"));
   const sub = searchParams.get("sub") ?? filter.subs?.[0]?.value;
+  const query = searchParams.get("q") ?? "";
   const queuePage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
 
   const [candidate, setCandidate] =
@@ -148,9 +149,10 @@ const DiscoveryGuidedReviewPage: React.FC<{
     if (batchId !== null) q.set("batch", String(batchId));
     q.set("filter", filter.id);
     if (sub) q.set("sub", sub);
+    if (query) q.set("q", query);
     q.set("page", String(queuePage));
     return `/admin/discovery/review-queue?${q.toString()}`;
-  }, [batchId, filter.id, sub, queuePage]);
+  }, [batchId, filter.id, sub, queuePage, query]);
 
   const guidedUrl = useCallback(
     (id: number, page: number) => {
@@ -158,10 +160,11 @@ const DiscoveryGuidedReviewPage: React.FC<{
       if (batchId !== null) q.set("batch", String(batchId));
       q.set("filter", filter.id);
       if (sub) q.set("sub", sub);
+      if (query) q.set("q", query);
       q.set("page", String(page));
       return `/admin/discovery/review-queue/${id}?${q.toString()}`;
     },
-    [batchId, filter.id, sub]
+    [batchId, filter.id, sub, query]
   );
 
   // --- Load the candidate bundle (prefetch-aware) -------------------------
@@ -275,6 +278,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
       const stored = readStoredQueueState();
       const resp = await client.listBatchCandidates(batchId, {
         ...filter.params(sub),
+        q: query || undefined,
         page,
         page_size: stored?.pageSize ?? 50,
         sort: "name",
@@ -285,7 +289,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
         total: resp?.pagination.total_results ?? null,
       };
     },
-    [batchId, client, filter, sub]
+    [batchId, client, filter, sub, query]
   );
 
   const applyPage = useCallback(

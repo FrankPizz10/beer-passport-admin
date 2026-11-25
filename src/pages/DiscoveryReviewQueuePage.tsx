@@ -107,6 +107,7 @@ const DiscoveryReviewQueuePage: React.FC<{
         next.set("batch", String(stored.batchId));
         next.set("filter", stored.filter);
         if (stored.sub) next.set("sub", stored.sub);
+        if (stored.q) next.set("q", stored.q);
         next.set("page", String(stored.page));
         next.set("page_size", String(stored.pageSize));
         setSearchParams(next, { replace: true });
@@ -116,6 +117,7 @@ const DiscoveryReviewQueuePage: React.FC<{
   }, []);
 
   const batchIdParam = searchParams.get("batch");
+  const query = searchParams.get("q") ?? "";
   const filter = queueFilterDef(searchParams.get("filter"));
   const sub = searchParams.get("sub") ?? filter.subs?.[0]?.value;
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
@@ -165,6 +167,7 @@ const DiscoveryReviewQueuePage: React.FC<{
     client
       .listBatchCandidates(batchId, {
         ...filter.params(sub),
+        q: query || undefined,
         page,
         page_size: pageSize,
         sort: "name",
@@ -181,6 +184,7 @@ const DiscoveryReviewQueuePage: React.FC<{
           sub,
           page,
           pageSize,
+          q: query,
         });
       })
       .catch((e) => {
@@ -195,7 +199,7 @@ const DiscoveryReviewQueuePage: React.FC<{
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, batchId, filter.id, sub, page, pageSize, reloadTick]);
+  }, [client, batchId, filter.id, sub, page, pageSize, query, reloadTick]);
 
   // Selection and bulk state belong to one page view only.
   useEffect(() => {
@@ -203,7 +207,7 @@ const DiscoveryReviewQueuePage: React.FC<{
     setBulkConfirm(null);
     setBulkOutcomes(null);
     setBulkSnapshot(null);
-  }, [batchId, filter.id, sub, page]);
+  }, [batchId, filter.id, sub, page, query]);
 
   // Scroll the returned-to item into view.
   useEffect(() => {
@@ -313,6 +317,7 @@ const DiscoveryReviewQueuePage: React.FC<{
     if (batchId !== null) q.set("batch", String(batchId));
     q.set("filter", filter.id);
     if (sub) q.set("sub", sub);
+    if (query) q.set("q", query);
     q.set("page", String(page));
     return `/admin/discovery/review-queue/${candidateId}?${q.toString()}`;
   };
@@ -344,6 +349,10 @@ const DiscoveryReviewQueuePage: React.FC<{
       )}
 
       <div className="filters rq-filters">
+        <div>
+          <label htmlFor="rq-search">Search beer or brewery</label>
+          <input id="rq-search" value={query} onChange={(e) => updateParams({ q: e.target.value || null, page: "1" })} />
+        </div>
         <div>
           <label htmlFor="rq-batch">Batch</label>
           <select
