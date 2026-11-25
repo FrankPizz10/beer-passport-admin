@@ -29,6 +29,7 @@ import StatusChip from "../components/StatusChip";
 import { ErrorState, Loading } from "../components/States";
 import { fmtDate, fmtVal } from "../components/helpers";
 import GuidedImagePanel from "../components/reviewQueue/GuidedImagePanel";
+import { ReviewedImageSnapshot } from "../components/reviewQueue/approveFlow";
 import GuidedIntentEditor, {
   GuidedIntentMode,
   GuidedTarget,
@@ -116,6 +117,11 @@ const DiscoveryGuidedReviewPage: React.FC<{
   const [history, setHistory] = useState<DiscoveryDecision[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [imageTick, setImageTick] = useState(0);
+  // The exact stored preview currently displayed in the image
+  // panel (reported by the panel only after a successful load).
+  // Approve for import binds to this snapshot and nothing else.
+  const [reviewedImage, setReviewedImage] =
+    useState<ReviewedImageSnapshot | null>(null);
 
   const [mode, setMode] = useState<GuidedIntentMode | null>(null);
   const [proposed, setProposed] = useState<
@@ -253,8 +259,17 @@ const DiscoveryGuidedReviewPage: React.FC<{
   }, [target, client]);
 
   // --- Queue position / prev-next -----------------------------------------
+  // Navigation NEVER trusts the stored page: a decision (by this
+  // reviewer or anyone else) removes a row from the pending filter
+  // and shifts every later page. goTo re-resolves the neighbor from
+  // FRESH list data for the active filter, anchored on the current
+  // candidate's ID; when the candidate itself has left the filter,
+  // its last-known index into the fresh ordering names the
+  // successor (next) or predecessor (previous), so items are never
+  // skipped or repeated as pages shift.
   const position = queueIds.indexOf(candidateId);
-  const fetchQueuePage = useCallback(
+
+  const fetchPageIds = useCallback(
     async (page: number) => {
       if (batchId === null) return null;
       const stored = readStoredQueueState();
@@ -265,41 +280,111 @@ const DiscoveryGuidedReviewPage: React.FC<{
         sort: "name",
         direction: "asc",
       });
-      const ids = (resp?.results ?? []).map((r) => r.id);
-      storeQueueIds(ids);
-      setQueueIds(ids);
-      setQueueTotal(resp?.pagination.total_results ?? null);
-      return { ids, totalPages: resp?.pagination.total_pages ?? 1 };
+      return {
+        ids: (resp?.results ?? []).map((r) => r.id),
+        total: resp?.pagination.total_results ?? null,
+      };
     },
     [batchId, client, filter, sub]
   );
 
+  const applyPage = useCallback(
+    (ids: number[], total: number | null) => {
+      storeQueueIds(ids);
+      setQueueIds(ids);
+      if (total !== null) setQueueTotal(total);
+    },
+    []
+  );
+
   useEffect(() => {
     if (queueIds.length === 0 && batchId !== null) {
-      fetchQueuePage(queuePage).catch(() => undefined);
+      fetchPageIds(queuePage)
+        .then((r) => {
+          if (r) applyPage(r.ids, r.total);
+        })
+        .catch(() => undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]);
 
   const goTo = useCallback(
     async (direction: 1 | -1) => {
-      const idx = queueIds.indexOf(candidateId);
-      if (idx === -1) return;
-      const within = queueIds[idx + direction];
-      if (within !== undefined) {
-        navigate(guidedUrl(within, queuePage));
+      if (batchId === null) return;
+      const size = readStoredQueueState()?.pageSize ?? 50;
+      const recordedIndex = queueIds.indexOf(candidateId);
+      const land = (
+        id: number,
+        page: number,
+        ids: number[],
+        total: number | null
+      ) => {
+        applyPage(ids, total);
+        navigate(guidedUrl(id, page));
+      };
+
+      // Anchor: find the current candidate in fresh data, starting
+      // with its last-known page, then the adjacent pages (a shift
+      // smaller than a page can move it across a boundary).
+      const anchorPages = [queuePage, queuePage - 1, queuePage + 1].filter(
+        (p) => p >= 1
+      );
+      let anchor: { page: number; ids: number[]; total: number | null; index: number } | null =
+        null;
+      let currentPageData: { ids: number[]; total: number | null } | null =
+        null;
+      for (const p of anchorPages) {
+        const data = await fetchPageIds(p).catch(() => null);
+        if (!data) continue;
+        if (p === queuePage) currentPageData = data;
+        const idx = data.ids.indexOf(candidateId);
+        if (idx >= 0) {
+          anchor = { page: p, ids: data.ids, total: data.total, index: idx };
+          break;
+        }
+      }
+
+      if (anchor) {
+        const within = anchor.ids[anchor.index + direction];
+        if (within !== undefined) {
+          land(within, anchor.page, anchor.ids, anchor.total);
+          return;
+        }
+        const neighborPage = anchor.page + direction;
+        if (neighborPage < 1) return;
+        const neighbor = await fetchPageIds(neighborPage).catch(() => null);
+        if (!neighbor || neighbor.ids.length === 0) return;
+        const targetId =
+          direction === 1
+            ? neighbor.ids[0]
+            : neighbor.ids[neighbor.ids.length - 1];
+        land(targetId, neighborPage, neighbor.ids, neighbor.total);
         return;
       }
-      // Cross the page boundary: fetch the neighboring queue page.
-      const nextPage = queuePage + direction;
-      if (nextPage < 1) return;
-      const result = await fetchQueuePage(nextPage).catch(() => null);
-      if (!result || result.ids.length === 0) return;
-      const targetId =
-        direction === 1 ? result.ids[0] : result.ids[result.ids.length - 1];
-      navigate(guidedUrl(targetId, nextPage));
+
+      // The candidate has left the filter entirely. Its recorded
+      // global index, read into the fresh ordering, is where its
+      // successor now sits; the predecessor is one slot earlier.
+      if (recordedIndex < 0) return;
+      const recordedGlobal = (queuePage - 1) * size + recordedIndex;
+      const targetGlobal =
+        direction === 1 ? recordedGlobal : recordedGlobal - 1;
+      if (targetGlobal < 0) return;
+      const targetPage = Math.floor(targetGlobal / size) + 1;
+      const targetIndex = targetGlobal % size;
+      const targetData =
+        targetPage === queuePage
+          ? currentPageData
+          : await fetchPageIds(targetPage).catch(() => null);
+      if (!targetData || targetIndex >= targetData.ids.length) return;
+      land(
+        targetData.ids[targetIndex],
+        targetPage,
+        targetData.ids,
+        targetData.total
+      );
     },
-    [queueIds, candidateId, queuePage, fetchQueuePage, guidedUrl, navigate]
+    [batchId, queueIds, candidateId, queuePage, fetchPageIds, applyPage, guidedUrl, navigate]
   );
 
   // Prefetch the next candidate's reads (never writes).
@@ -382,7 +467,23 @@ const DiscoveryGuidedReviewPage: React.FC<{
     candidateId,
     client,
     desiredIntent,
+    reviewedImage,
+    baselineIntent: savedRecord
+      ? { id: savedRecord.id, intent: savedRecord.intent }
+      : null,
     onCompleted: refreshAfterWrite,
+    onResult: (result) => {
+      // The preview the flow was bound to drifted or never loaded:
+      // clear the snapshot and remount the image panel so the
+      // reviewer must actually view the current stored preview
+      // before a resume can approve any image. A rejected-image
+      // block is different: the panel stays, and the recovery is
+      // the explicit Fetch button there.
+      if (result.imageBlock === "drift" || result.imageBlock === "no_snapshot") {
+        setReviewedImage(null);
+        setImageTick((t) => t + 1);
+      }
+    },
   });
 
   // --- Hold / Reject ---------------------------------------------------------
@@ -612,6 +713,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
           client={client}
           initialFetches={initialFetches}
           initialDecisions={initialDecisions}
+          onStateChange={(s) => setReviewedImage(s.reviewedSnapshot)}
         />
       </section>
 
@@ -721,15 +823,17 @@ const DiscoveryGuidedReviewPage: React.FC<{
             >
               {runner.running
                 ? "Approving..."
-                : runner.hasFailure
+                : runner.hasFailure || runner.hasBlock
                   ? "Resume - finish the remaining steps"
                   : "Approve for import"}
             </button>
             <HelpTip topic="approve for import">
               Approve for import records, in order: your review
-              intent, the image approval for the stored preview (when
-              your choice uses the image and none is recorded yet),
-              and the candidate selection. It does not publish or
+              intent, the image approval bound to the exact stored
+              preview you viewed above (when your choice uses the
+              image), and the candidate selection. If the preview
+              changes or was rejected, the run stops instead of
+              approving different bytes. It does not publish or
               import anything: a manifest still has to be built,
               approved by its exact hash, and imported by the
               operator.
@@ -802,7 +906,9 @@ const DiscoveryGuidedReviewPage: React.FC<{
           }
           onClick={runner.run}
         >
-          {runner.hasFailure ? "Resume" : "Approve for import"}
+          {runner.hasFailure || runner.hasBlock
+            ? "Resume"
+            : "Approve for import"}
         </button>
       </div>
     </div>
