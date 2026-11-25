@@ -24,6 +24,7 @@ import { createAdminRouter } from './routes/admin';
 import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
+import { createDiscoveryMatchRouter } from './routes/discoveryMatch';
 import { createDiscoveryDecisionsRouter } from './routes/discoveryDecisions';
 import { createDiscoveryImagesRouter, DiscoveryImageServices } from './routes/discoveryImages';
 import { createDiscoveryManifestsRouter } from './routes/discoveryManifests';
@@ -97,6 +98,7 @@ export const createApp = (deps: AppDeps = {}) => {
   api.use(createImagesRouter(prisma, presignGetUrl));
   api.use(createImageApprovalsRouter(prisma, writePrisma));
   api.use(createDiscoveryRouter(prisma));
+  api.use(createDiscoveryMatchRouter(prisma));
   api.use(createDiscoveryDecisionsRouter(prisma, discoveryWritePrisma));
   if (deps.discoveryImageServices) {
     api.use(createDiscoveryImagesRouter(prisma, discoveryWritePrisma, deps.discoveryImageServices));
