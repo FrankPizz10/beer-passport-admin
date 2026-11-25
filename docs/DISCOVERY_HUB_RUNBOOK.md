@@ -180,6 +180,15 @@ API (viewer role, existing admin auth):
 - `GET /admin-api/v1/discovery/candidates/:id`: full detail with
   provenance, origin evidence, image fields, hold reason and note,
   dedupe outcome, and pairs.
+- `GET /admin-api/v1/discovery/candidates/:id/match-suggestions`
+  (proposed, WS1 matching PR): ranked likely catalog matches for the
+  candidate with per-suggestion evidence (`barcode_exact`,
+  `name_exact`, `name_normalized`, `brewery_match`, `name_similar`,
+  `token_overlap`), an `exhaustive` flag and a `scanned` count. The
+  similarity scan is bounded (default 500 rows scored,
+  `DISCOVERY_MATCH_SCAN_CAP`); `exhaustive` is always false because
+  token retrieval and capped exact queries can miss matches.
+  Read-only and advisory: it records and selects nothing.
 
 UI: the Discovery section in the admin nav (Batches, per-batch
 Candidates, Candidate detail).
