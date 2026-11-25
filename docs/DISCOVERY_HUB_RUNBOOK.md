@@ -388,9 +388,24 @@ unit-test SSRF battery in `server/src/discoveryImageFetch.test.ts`):
   from the magic bytes. Dimensions are parsed for png, jpeg, gif,
   and webp; avif dimensions are recorded as null (no cheap
   unambiguous parse of the nested ISOBMFF boxes).
-- Rate limit: 30 fetches per reviewer per rolling hour, counted
-  from discovery_image_fetches; further fetches answer 429 until
-  the window moves.
+- Rate limit: 30 fetches per reviewer per rolling hour by
+  default, counted from discovery_image_fetches (every attempt
+  that reaches the fetcher counts, success or failure; 503/404/422
+  refusals write no row and do not count). Further fetches answer
+  429 with error.retry_after_seconds (and a Retry-After header)
+  giving the wait until the oldest counted attempt leaves the
+  window. Operator configuration: set
+  DISCOVERY_IMAGE_FETCH_RATE_LIMIT in the API service environment
+  to a positive integer to raise the limit for high-throughput
+  review (hard maximum 600; unset, non-numeric, zero, or negative
+  values keep the default of 30 and log a startup warning, as
+  does a clamped value). The value is read once at API process
+  start, so changing it means updating the environment and
+  restarting the API process; no other deploy step is involved.
+  Recommended for the domestic batch: 300 (the batch has only
+  216 image-bearing candidates, so one full pass plus refetch
+  headroom fits in a single window; see PR_NOTES_RATELIMIT.md
+  for the math).
 
 Image decision API (reviewer role; same admin auth as every route):
 

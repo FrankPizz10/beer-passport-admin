@@ -64,7 +64,21 @@ Shapes the UI depends on:
   decision}`); the outcome field carries success or the failure
   class. Refusals: 503 unconfigured write path or image store, 404
   unknown candidate, 422 no fetchable http(s) image URL, 429 past
-  the per-reviewer rate limit (30/hour).
+  the per-reviewer rate limit (see the rate limit paragraph below).
+- Image fetch rate limit: attempts are counted per reviewer from
+  `discovery_image_fetches` over a rolling one-hour window; every
+  attempt that reaches the fetcher counts, success or failure
+  (pre-flight refusals - 503 unconfigured, 404, 422 - write no row
+  and do not count). The limit defaults to 30 per hour and is
+  operator-configurable via `DISCOVERY_IMAGE_FETCH_RATE_LIMIT`
+  (positive integer, hard maximum 600, read at server start; unset
+  or invalid values keep the default). Past the limit the POST
+  answers 429 with the standard error shape plus one added field:
+  `{error: {code: 'too_many_requests', message,
+  retry_after_seconds}}`, where `retry_after_seconds` is the wait
+  until the oldest counted attempt leaves the rolling window; the
+  same value is sent as the `Retry-After` response header. The UI
+  renders that guidance instead of a bare "try again later".
 - The preview endpoint serves the STORED bytes for a successful
   fetch with the verified content type, `X-Content-Type-Options:
   nosniff`, and a sandboxing CSP. The UI fetches those bytes through

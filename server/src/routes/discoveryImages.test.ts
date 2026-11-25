@@ -127,6 +127,12 @@ const buildApp = (opts: {
           ? fetchCount
           : fetchRows.length),
       findMany: jest.fn(async () => [...fetchRows].reverse()),
+      findFirst: jest.fn(async ({ orderBy }: any) => {
+        if (!fetchRows.length) return null;
+        const sorted = [...fetchRows].sort(
+          (a: any, b: any) => a.fetched_at.getTime() - b.fetched_at.getTime());
+        return orderBy && orderBy.fetched_at === 'desc' ? sorted[sorted.length - 1] : sorted[0];
+      }),
       findUnique: jest.fn(async ({ where }: any) =>
         fetchRows.find((f) => f.id === where.id) ?? null),
     },
@@ -257,11 +263,30 @@ describe('discovery image fetches', () => {
     expect(h.writeCreates.fetches[0]).toMatchObject({ outcome: 'not_image', sha256: null });
   });
 
+  it('records a store failure without making the fetched image approvable', async () => {
+    const h = buildApp();
+    jest.spyOn(h.store, 'put').mockRejectedValueOnce(new Error('disk unavailable'));
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await auth(request(h.app).post('/admin-api/v1/discovery/candidates/11/image-fetches')).send({});
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ outcome: 'store_failed', sha256: null });
+      expect(h.writeCreates.fetches).toHaveLength(1);
+      expect(h.writeCreates.fetches[0]).toMatchObject({ outcome: 'store_failed', sha256: null });
+    } finally { log.mockRestore(); }
+  });
+
   it('answers 429 past the per-reviewer rate limit', async () => {
     const h = buildApp();
     h.setFetchCount(30);
     const res = await auth(request(h.app).post('/admin-api/v1/discovery/candidates/11/image-fetches')).send({});
     expect(res.status).toBe(429);
+    expect(res.body.error.code).toBe('too_many_requests');
+    // Machine-readable retry guidance rides along: with no readable
+    // oldest row the stub yields the full-window fallback, mirrored
+    // in the Retry-After header.
+    expect(res.body.error.retry_after_seconds).toBe(3600);
+    expect(res.headers['retry-after']).toBe('3600');
     expect(h.writeCreates.fetches).toHaveLength(0);
   });
 
