@@ -46,6 +46,10 @@ const DiscoveryCandidatesPage: React.FC = () => {
       <h1>Discovery Candidates</h1>
       <p>
         <Link to="/admin/discovery/batches">Back to Discovery Batches</Link>
+        {" | "}
+        <Link to={`/admin/discovery/review-queue?batch=${batchId}`}>
+          Open the fast review queue for this batch
+        </Link>
       </p>
       <div className="filters">
         <label className="visually-hidden" htmlFor="discovery-filter-q">Search candidates</label>

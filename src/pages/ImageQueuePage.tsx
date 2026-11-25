@@ -200,12 +200,16 @@ const ImageQueuePage: React.FC = () => {
 
   return (
     <div>
-      <h1>Image Queue</h1>
+      <h1>Catalog Image Approvals</h1>
       <p className="note">
-        Pending image candidates. Approving makes the image appear in the catalog for
-        that beverage; every decision is recorded with who made it and when. Check
-        that the preview shows the correct product at usable quality before
-        approving: the Approve button unlocks only after the image has loaded here.
+        Image approvals for beverages already in the catalog (the
+        candidate-loader path). This is separate from Discovery
+        review, where staged candidates get image decisions before
+        any import. Approving here makes the image appear in the
+        catalog for that beverage; every decision is recorded with
+        who made it and when. Check that the preview shows the
+        correct product at usable quality before approving: the
+        Approve button unlocks only after the image has loaded here.
       </p>
       {queue.loading && !queue.data ? (
         <Loading />

@@ -186,6 +186,12 @@ const DiscoveryBatchesPage: React.FC = () => {
               </div>
               <p>
                 <Link
+                  to={`/admin/discovery/review-queue?batch=${batch.id}`}
+                >
+                  Open review queue
+                </Link>{" "}
+                |{" "}
+                <Link
                   to={`/admin/discovery/batches/${batch.id}/candidates`}
                 >
                   View candidates

@@ -57,6 +57,105 @@ export class NotYetAvailableError extends Error {
   }
 }
 
+// --- Match suggestions (parallel workstream WS1 contract) --------------
+// GET /discovery/candidates/:id/match-suggestions is implemented in
+// a separate backend PR that is NOT merged yet. The UI codes
+// against this fixed shape and degrades gracefully: a 404 means the
+// endpoint is not deployed, and the UI hides the suggestions panel
+// and offers manual catalog search only. Suggestions are ranked
+// candidates for the image-only target; they NEVER auto-select a
+// target - the reviewer still picks and explicitly confirms.
+
+export interface MatchSuggestion {
+  beer_id: number;
+  name: string;
+  brewery_name: string | null;
+  abv: number | null;
+  barcode: string | null;
+  score: number;
+  evidence: string[];
+}
+
+// Completeness reporting for the suggestions search. The current
+// (WS1) response carries only the legacy `exhaustive` flag below;
+// the corrected contract proposed in
+// docs/DISCOVERY_REVIEW_API_CONTRACT.md section A3 adds this object
+// so the UI can distinguish "the token-driven candidate pool query
+// ran to completion" from "every catalog beer was actually scored".
+// The client tolerates BOTH shapes: when `completeness` is absent,
+// nothing about the search is treated as affirmatively complete.
+export interface MatchSuggestionsCompleteness {
+  // The token-driven pool query finished without hitting the scan
+  // cap. This says nothing about beers the token prefilter never
+  // retrieved (e.g. a catalog name sharing no token with the staged
+  // name), so it is NOT a complete catalog search on its own.
+  token_query_complete: boolean;
+  // True only when every catalog beer was actually scored, so no
+  // match could have been missed by the retrieval stage.
+  catalog_exhaustive: boolean;
+  // Retrieval/scoring stages that hit a bound and may have dropped
+  // candidates: any of "barcode_exact", "name_exact",
+  // "similarity_scan".
+  stages_truncated: string[];
+}
+
+export interface MatchSuggestions {
+  candidate_id: number;
+  suggestions: MatchSuggestion[];
+  // Legacy flag from the WS1 response. True means only that the
+  // bounded token scan was not truncated by its cap; it does NOT
+  // mean the whole catalog was searched (a name sharing no literal
+  // token with the staged name is never retrieved). The UI must not
+  // present this as a complete catalog search.
+  exhaustive: boolean;
+  scanned: number;
+  // Corrected completeness reporting (proposed contract, section
+  // A3). Absent on responses from the current backend.
+  completeness?: MatchSuggestionsCompleteness;
+}
+
+// True only when the response AFFIRMATIVELY reports a complete
+// catalog search under the corrected semantics. The legacy
+// `exhaustive: true` never qualifies on its own.
+export const suggestionsSearchComplete = (
+  data: MatchSuggestions
+): boolean => data.completeness?.catalog_exhaustive === true;
+
+// Human-readable labels for the evidence codes the matcher emits.
+export const EVIDENCE_LABELS: Record<string, string> = {
+  barcode_exact: "Barcode matches exactly",
+  name_exact: "Name matches exactly",
+  name_normalized: "Name matches after normalization",
+  brewery_match: "Brewery matches",
+  name_similar: "Name is similar",
+  token_overlap: "Name shares words",
+};
+
+export const evidenceLabel = (code: string): string =>
+  EVIDENCE_LABELS[code] ?? code;
+
+// True when the match-suggestions endpoint is not deployed (404):
+// the one failure mode the UI treats as "feature absent" rather
+// than an error worth alarming the reviewer with.
+export const isMatchSuggestionsUnavailable = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 404;
+
+// The image-fetch rate limiter (parallel workstream WS3) may refuse
+// a fetch with HTTP 429 and a retry_after_seconds hint in the error
+// body. apiPost preserves the parsed body on ApiError.details; the
+// hint may sit at the top level or inside the error object. Returns
+// null when no usable hint is present, in which case the UI shows
+// the server's message as-is.
+export const extractRetryAfterSeconds = (error: unknown): number | null => {
+  if (!(error instanceof ApiError)) return null;
+  const details: any = error.details;
+  const raw =
+    details?.error?.retry_after_seconds ?? details?.retry_after_seconds;
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+    ? raw
+    : null;
+};
+
 export type CandidateDecisionAction = "select" | "hold" | "reject" | "unhold";
 
 export interface CandidateDecisionInput {
@@ -102,6 +201,36 @@ export interface ReviewIntentBeer {
 export type ReviewIntent =
   | { mode: "image_only"; target_beer_id: number }
   | { mode: "new_beer"; beer: ReviewIntentBeer };
+
+// Structural equality for intents: the approve-for-import flow uses
+// it to skip the intent save when the reviewer's current choice is
+// already the saved intent, so a retry never writes a duplicate
+// revision. Field order in the payload objects is fixed by
+// buildNewBeerIntent, but the comparison does not rely on it.
+export const intentsEqual = (
+  a: ReviewIntent | null | undefined,
+  b: ReviewIntent | null | undefined
+): boolean => {
+  if (!a || !b) return a === b;
+  if (a.mode !== b.mode) return false;
+  if (a.mode === "image_only" && b.mode === "image_only") {
+    return a.target_beer_id === b.target_beer_id;
+  }
+  if (a.mode === "new_beer" && b.mode === "new_beer") {
+    const x = a.beer;
+    const y = b.beer;
+    return (
+      x.name === y.name &&
+      x.brewery_name === y.brewery_name &&
+      x.style === y.style &&
+      x.abv === y.abv &&
+      x.ibu === y.ibu &&
+      x.barcode === y.barcode &&
+      x.description === y.description
+    );
+  }
+  return false;
+};
 
 // One saved intent as returned by GET/POST review-intent. `id` is
 // the revision token: replacing the intent requires sending it back
@@ -199,6 +328,9 @@ export interface DiscoveryReviewClient {
     expectedRevision: number | null,
     intent: ReviewIntent
   ): Promise<ReviewIntentRecord>;
+
+  // --- Match suggestions (parallel WS1 contract, see above) ---
+  getMatchSuggestions(candidateId: number): Promise<MatchSuggestions>;
 }
 
 export const httpDiscoveryReviewClient: DiscoveryReviewClient = {
@@ -249,6 +381,9 @@ export const httpDiscoveryReviewClient: DiscoveryReviewClient = {
       expected_revision: expectedRevision,
       intent,
     }),
+
+  getMatchSuggestions: (candidateId) =>
+    apiGet(`/discovery/candidates/${candidateId}/match-suggestions`),
 };
 
 // --- Field review model -------------------------------------------------

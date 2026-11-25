@@ -18,8 +18,9 @@ const CRUMB_LABELS: Record<string, string> = {
   styles: "Styles",
   collections: "Collections",
   "beverage-images": "Beverage Images",
-  "image-queue": "Image Queue",
+  "image-queue": "Catalog Image Approvals",
   discovery: "Discovery",
+  "review-queue": "Review Queue",
   batches: "Batches",
   manifests: "Manifests",
   candidates: "Candidates",
@@ -64,11 +65,37 @@ const AdminLayout: React.FC = () => {
   const [email, setEmail] = useState<string>("");
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [navOpen, setNavOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountMenuRef = React.useRef<HTMLDivElement>(null);
 
   // Close the mobile nav whenever the route changes.
   useEffect(() => {
     setNavOpen(false);
+    setAccountOpen(false);
   }, [location.pathname]);
+
+  // Close the account menu on an outside pointer press or Escape,
+  // so the compact header never leaves a stale menu over content.
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (
+        accountMenuRef.current &&
+        !accountMenuRef.current.contains(event.target as Node)
+      ) {
+        setAccountOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAccountOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [accountOpen]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -136,14 +163,41 @@ const AdminLayout: React.FC = () => {
         </div>
         <div className="header-meta">
           {target && (
-            <span className="chip" title="Database target">
+            <span className="chip header-target-chip" title="Database target">
               {target.host} / {target.database}
             </span>
           )}
-          {email && <span className="signed-in-email">{email}</span>}
-          <button type="button" onClick={handleLogout}>
-            Logout
-          </button>
+          <div className="account-menu-wrap" ref={accountMenuRef}>
+            <button
+              type="button"
+              className="account-menu-button"
+              aria-haspopup="true"
+              aria-expanded={accountOpen}
+              aria-label="Account menu"
+              onClick={() => setAccountOpen((open) => !open)}
+            >
+              Account
+            </button>
+            {accountOpen && (
+              <div className="account-menu" role="menu">
+                {email && (
+                  <div className="account-menu-email">
+                    Signed in as
+                    <br />
+                    <span className="signed-in-email">{email}</span>
+                  </div>
+                )}
+                {target && (
+                  <div className="account-menu-target">
+                    Database: {target.host} / {target.database}
+                  </div>
+                )}
+                <button type="button" role="menuitem" onClick={handleLogout}>
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
       <div className="admin-body">
@@ -160,8 +214,9 @@ const AdminLayout: React.FC = () => {
           <NavLink to="catalog/styles">Styles</NavLink>
           <NavLink to="catalog/collections">Collections</NavLink>
           <NavLink to="catalog/beverage-images">Beverage Images</NavLink>
-          <NavLink to="catalog/image-queue">Image Queue</NavLink>
+          <NavLink to="catalog/image-queue">Catalog Image Approvals</NavLink>
           <div className="nav-section">Discovery</div>
+          <NavLink to="discovery/review-queue">Review Queue</NavLink>
           <NavLink to="discovery/batches">Batches</NavLink>
           <NavLink to="discovery/manifests">Manifests</NavLink>
           <div className="nav-section">User Data</div>
