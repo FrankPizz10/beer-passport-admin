@@ -6,6 +6,7 @@ import {
   evidenceLabel,
   httpDiscoveryReviewClient,
   isMatchSuggestionsUnavailable,
+  suggestionsSearchComplete,
 } from "../../api/discoveryReview";
 import HelpTip from "../HelpTip";
 
@@ -17,6 +18,17 @@ import HelpTip from "../HelpTip";
 // When the endpoint is not deployed yet (404) the panel collapses
 // to a short note and the manual catalog search in the intent
 // editor is the only path - the panel never blocks the review.
+//
+// HONESTY RULE: the suggestions search is bounded. It retrieves a
+// candidate pool by literal tokens before scoring, so it can miss
+// a real match - including a catalog name that shares no searchable
+// token with the staged name (a typo can do that). Finding no
+// suggestion is therefore never presented as proof the beer is new,
+// and manual search is described as another bounded lookup, not a
+// confirmation. The "may miss matches" note shows unless the
+// response affirmatively reports a complete catalog search under
+// the corrected completeness semantics (see discoveryReview.ts);
+// the legacy exhaustive flag alone never suppresses it.
 
 export interface SuggestionTarget {
   id: number;
@@ -91,7 +103,9 @@ const MatchSuggestionsPanel: React.FC<{
         <p>
           Match suggestions are not available for this candidate yet.
           Use the manual catalog search under "Add image to existing
-          beer" below to find a target.
+          beer" below to look for a target. Manual search is a
+          bounded lookup too: finding nothing there is not proof
+          that this beer is new.
         </p>
       </div>
     );
@@ -117,16 +131,32 @@ const MatchSuggestionsPanel: React.FC<{
       )}
       {data && data.suggestions.length === 0 && (
         <p>
-          No likely matches were found in the catalog. The candidate
-          is probably a new beer; a manual search below can confirm.
+          No suggestions were returned for this candidate. That is
+          not proof the beer is new: the suggestions search is
+          bounded and can miss a real match. Search the catalog
+          manually below as another check, and choose Add new only
+          when you decide, on the evidence you have, that this is a
+          new beer.
         </p>
       )}
-      {data && !data.exhaustive && (
+      {data && !suggestionsSearchComplete(data) && (
         <p className="callout callout-warning" role="note">
-          Suggestions may not cover the whole catalog: the scan
-          checked {data.scanned} beers and stopped early. A beer that
-          is not listed here can still be the right target - search
-          manually before concluding there is no match.
+          Suggestions may miss matches: they are ranked from a
+          bounded search (scanned {data.scanned} beers), and a
+          catalog beer whose name shares no searchable word with the
+          staged name - a typo can cause that - may never be
+          retrieved.
+          {data.completeness &&
+          data.completeness.stages_truncated.length > 0
+            ? ` Search stages cut off early: ${data.completeness.stages_truncated.join(", ")}.`
+            : ""}
+          {!data.exhaustive
+            ? " The scan also stopped at its size limit."
+            : ""}{" "}
+          A beer that is not listed here can still be the right
+          target - search manually before concluding there is no
+          match, and treat a manual search with no results as
+          another bounded lookup, not a confirmation.
         </p>
       )}
       {data && data.suggestions.length > 0 && (
@@ -170,7 +200,8 @@ const MatchSuggestionsPanel: React.FC<{
         None of these is right? Use "None of these" by choosing the
         Add new choice below, or search the catalog manually in the
         image-only section. Suggestions never select a target on
-        their own.
+        their own, and an empty result here never proves there is
+        no match.
       </p>
     </div>
   );

@@ -34,6 +34,12 @@ export interface GuidedImageState {
   // The recorded decision for the latest successful fetch, if any.
   latestDecision: DiscoveryImageDecision | { decision: string } | null;
   hasStoredPreview: boolean;
+  // The exact preview the reviewer has actually SEEN: set only
+  // while the stored preview image for that fetch has loaded
+  // successfully in this panel; null when no preview is displayed,
+  // the preview failed to load, or the displayed fetch changed.
+  // Approve for import binds to this snapshot and nothing else.
+  reviewedSnapshot: { fetchId: number; sha256: string } | null;
 }
 
 const shortSha = (sha: string | null): string =>
@@ -129,6 +135,18 @@ const GuidedImagePanel: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidateId, client]);
 
+  // The reviewed snapshot exists only while the preview for the
+  // displayed fetch is on screen and loaded: a failed load, a fetch
+  // change, or a reload in flight all clear it, so an approval can
+  // never bind to bytes the reviewer did not actually see.
+  const reviewedSnapshot = useMemo(
+    () =>
+      previewLoaded && latestFetch && latestFetch.sha256
+        ? { fetchId: latestFetch.id, sha256: latestFetch.sha256 }
+        : null,
+    [previewLoaded, latestFetch]
+  );
+
   useEffect(() => {
     if (stateRef.current) {
       stateRef.current({
@@ -137,9 +155,10 @@ const GuidedImagePanel: React.FC<{
         latestFetch,
         latestDecision,
         hasStoredPreview: latestFetch !== null,
+        reviewedSnapshot,
       });
     }
-  }, [fetches, decisions, latestFetch, latestDecision]);
+  }, [fetches, decisions, latestFetch, latestDecision, reviewedSnapshot]);
 
   // Preview bytes for the latest successful fetch, reused as-is:
   // this effect runs when the fetch id changes, never on a timer.
@@ -307,8 +326,11 @@ const GuidedImagePanel: React.FC<{
             store; there is nothing a reviewer can fix here, and you
             should not fetch or upload the origin URL yourself. The
             staged provenance and any saved review intent are
-            unchanged, and this candidate can still be approved
-            without an image decision.
+            unchanged. Because this candidate HAS a staged image,
+            its image step cannot be completed while the store is
+            unconfigured: a manifest build would refuse it
+            (image_unverified) until the image is fetched, previewed
+            from stored bytes, and approved.
           </p>
         </div>
       )}
@@ -332,9 +354,10 @@ const GuidedImagePanel: React.FC<{
               src={previewUrl}
               alt={`Fetched preview for ${candidate.name}`}
               onLoad={() => setPreviewLoaded(true)}
-              onError={() =>
-                setPreviewError("The preview image failed to load.")
-              }
+              onError={() => {
+                setPreviewLoaded(false);
+                setPreviewError("The preview image failed to load.");
+              }}
             />
           )}
           <div className="detail-grid">
