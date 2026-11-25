@@ -266,9 +266,21 @@ export const createDiscoveryImagesRouter = (
       : null;
     let row: any;
     if (result.outcome === 'success') {
-      const storedSha = await services.store.put(result.image.bytes);
-      if (storedSha !== result.image.sha256) {
-        throw new Error('Stored image hash does not match the fetched bytes hash.');
+      try {
+        const storedSha = await services.store.put(result.image.bytes);
+        if (storedSha !== result.image.sha256) throw new Error('Stored image hash mismatch.');
+      } catch (error) {
+        console.error('Discovery image store failed', error);
+        const failed = await writePrisma.discovery_image_fetches.create({
+          data: {
+            candidate_id: id, image_ref: imageRef, sha256: null, content_type: null,
+            byte_size: null, width: null, height: null, outcome: 'store_failed',
+            outcome_detail: 'Unable to store the fetched image.',
+            fetched_by: adminUserId, fetched_by_uid: adminUid,
+          },
+        });
+        res.status(201).json(serializeImageFetch({ ...failed, fetcher: fetcherIdentity, decision: null }));
+        return;
       }
       row = await writePrisma.discovery_image_fetches.create({
         data: {

@@ -263,6 +263,19 @@ describe('discovery image fetches', () => {
     expect(h.writeCreates.fetches[0]).toMatchObject({ outcome: 'not_image', sha256: null });
   });
 
+  it('records a store failure without making the fetched image approvable', async () => {
+    const h = buildApp();
+    jest.spyOn(h.store, 'put').mockRejectedValueOnce(new Error('disk unavailable'));
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await auth(request(h.app).post('/admin-api/v1/discovery/candidates/11/image-fetches')).send({});
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject({ outcome: 'store_failed', sha256: null });
+      expect(h.writeCreates.fetches).toHaveLength(1);
+      expect(h.writeCreates.fetches[0]).toMatchObject({ outcome: 'store_failed', sha256: null });
+    } finally { log.mockRestore(); }
+  });
+
   it('answers 429 past the per-reviewer rate limit', async () => {
     const h = buildApp();
     h.setFetchCount(30);

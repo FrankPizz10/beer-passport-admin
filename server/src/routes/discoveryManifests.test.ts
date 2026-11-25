@@ -321,7 +321,7 @@ describe('manifest approval (Frank\'s gate)', () => {
   });
 
   it('refuses 409 when the manifest is not in draft status', async () => {
-    const { app } = buildHarness();
+    const { app, state } = buildHarness();
     const built = await buildManifest(app);
     const first = await asFrank(request(app).post(`/admin-api/v1/discovery/manifests/${built.id}/approve`))
       .send({ sha256: built.sha256 });
@@ -379,8 +379,10 @@ describe('manifest void', () => {
 
 describe('manifest reads and export', () => {
   it('lists and details manifests with can_approve computed from the allowlist, and never leaks a UID', async () => {
-    const { app } = buildHarness();
+    const { app, state } = buildHarness();
     const built = await buildManifest(app);
+    state.manifests[0].manifest.records[1].kind = 'image_only';
+    state.manifests[0].manifest.records[1].target_beer_id = 3784;
     const listAdmin = await asAdmin(request(app).get('/admin-api/v1/discovery/manifests'));
     expect(listAdmin.status).toBe(200);
     expect(listAdmin.body.results).toHaveLength(1);
@@ -392,6 +394,7 @@ describe('manifest reads and export', () => {
     const detail = await asFrank(request(app).get(`/admin-api/v1/discovery/manifests/${built.id}`));
     expect(detail.status).toBe(200);
     expect(detail.body.records).toHaveLength(2);
+    expect(detail.body.records[1]).toMatchObject({ kind: 'image_only', target_beer_id: 3784 });
     const imageRecord = detail.body.records.find((r: any) => r.candidate_id === 12);
     expect(imageRecord.image.sha256).toBe('ab'.repeat(32));
     expect(detail.body.catalog_fingerprint).toEqual(FINGERPRINT);

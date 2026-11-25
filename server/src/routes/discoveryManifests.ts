@@ -437,6 +437,8 @@ export const createDiscoveryManifestsRouter = (
       catalog_fingerprint: row.catalog_fingerprint,
       records: Array.isArray(content?.records)
         ? content.records.map((r: any) => ({
+            ...(r.kind ? { kind: r.kind } : {}),
+            ...(r.target_beer_id != null ? { target_beer_id: r.target_beer_id } : {}),
             candidate_id: r.candidate_id,
             candidate_key: r.candidate_key,
             payload_sha256: r.payload_sha256,
