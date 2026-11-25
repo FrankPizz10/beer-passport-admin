@@ -402,3 +402,329 @@ for any fix above.
   the WS2 finish; no tests changed).
 - `CI=true npm run build`: compiled successfully (with the real
   `src/index.tsx` restored).
+
+## Fix pass (Codex review)
+
+Follow-up on branch `ui/fast-review-queue` (was head 8215acd5),
+client and docs only: nothing under `server/`, nothing committed
+by the fix agent. Three fixes from Codex's review of the fast
+review queue.
+
+### Fix 1: approval binds to the image the reviewer actually saw
+
+`runApproveFlow` no longer picks the newest successful fetch. The
+guided page now tracks a **reviewed snapshot** `{fetchId, sha256}`
+that `GuidedImagePanel` reports only while the stored preview for
+that fetch has loaded successfully on screen (`onLoad` sets it;
+a load error, a fetch change, or a reload in flight clears it).
+The snapshot is passed through `useApproveForImport` into the
+flow, and the image step approves EXACTLY that fetch:
+
+- Reviewed fetch gone, not successful, or its recorded hash no
+  longer matches the snapshot: step **blocked** (`drift`), nothing
+  approved, nothing selected; the page clears the snapshot and
+  remounts the image panel so the reviewer must view the current
+  preview before resuming.
+- Reviewed fetch carries a REJECTED decision: **hard block**
+  (`rejected`), flow stops before selection, candidate never
+  reported ready. Copy gives the backend-consistent recovery:
+  decisions are per-fetch and decided-once (server route
+  `discoveryImages.ts`), so fetch a NEW image, view it, and
+  approve that fetch; the new decision replaces the rejected one
+  as the candidate's current decision.
+- Reviewed fetch already APPROVED for exactly the snapshot hash:
+  step done, no duplicate decision.
+- A 409 from the decision POST is success ONLY after re-reading
+  the audit list and verifying the exact reviewed fetch carries
+  an APPROVED decision whose `image_sha256` equals the snapshot.
+  A 409 caused by a concurrent REJECTED decision is the hard
+  block, never success.
+- No snapshot (preview never loaded / failed to load): the image
+  step cannot run - no decision call. If the image dimension is
+  already satisfied by an existing approved decision, the step
+  completes on that basis; otherwise it blocks with "view the
+  stored preview, then resume".
+- A newer fetch arriving after the preview does NOT change what
+  gets approved: the flow approves the reviewed fetch id (test
+  proves fetch 500 is decided, not the newer 501).
+
+Intent safety on resume: the flow accepts a session baseline
+(the saved intent as this reviewer saw it, thereafter the last
+revision this flow itself saved - tracked by the runner hook).
+If the saved intent has changed to something else, the intent
+step stops with a revision conflict and overwrites nothing; the
+server's `expected_revision` 409 protection still applies on top.
+
+Readiness honesty: `ready` now requires a pure eligibility
+mirror, `imageEligibility` in `approveFlow.ts`, of the manifest
+builder's image rules in `evaluateEligibility`
+(`server/src/discoveryManifestCore.ts`):
+
+- staged `image_url` non-empty + current decision `rejected`
+  -> blocker `image_rejected`;
+- staged image + decision not `approved`, or no verifiable
+  binding approved decision row for `image_decision_fetch_id`
+  -> blocker `image_unverified`;
+- intent mode `image_only` + no approved image disposition
+  -> blocker `approved_image_required`;
+- new beer with NO staged image: no image requirement (the
+  builder includes it with `image: null`).
+
+The checklist renders these as "Not ready for import yet" with
+the blocker text; the old behavior (image step "skipped" when no
+preview existed, then "Ready for import" for a candidate with an
+undecided staged image) is gone. The store-unset callout in
+`GuidedImagePanel` no longer claims such a candidate "can still
+be approved without an image decision".
+
+Changed existing tests (they encoded the flagged behavior):
+the approveFlow "image-only without a stored preview" case now
+expects a block; the guided-page "approve orchestration" case is
+split into blocked-without-preview, ready-after-viewing-preview
+(asserts the decision binds fetch 500 + its SHA-256), and
+ready-for-no-image cases; two approveFlow fixtures were made
+realistic (the fake now projects `image_decision` /
+`image_decision_fetch_id` on decision, like the real POST, and
+the already-decided fixture carries the binding audit row).
+
+New approveFlow tests: newer fetch after preview; preview load
+failure (no snapshot -> no decision, no selection); hash drift;
+pre-existing rejected decision; 409-concurrent-approved (done)
+vs 409-concurrent-rejected (block); intent changed by another
+reviewer (conflict, no overwrite, their intent untouched);
+image-only with no staged image (not ready, nothing selected);
+image-only happy path; six direct `imageEligibility` cases.
+
+### Fix 2: honest match guidance
+
+- Removed "The candidate is probably a new beer; a manual search
+  below can confirm." Empty suggestions now say the search is
+  bounded, that no result is NOT proof the beer is new, and that
+  manual search is another bounded lookup, not a confirmation.
+  The unavailable-endpoint (404) copy says the same about manual
+  search. Nothing auto-selects; explicit target confirmation is
+  unchanged.
+- The "may miss matches" note now shows UNLESS the response
+  affirmatively reports a complete catalog search under the
+  corrected semantics: `suggestionsSearchComplete` requires
+  `completeness.catalog_exhaustive === true`. The legacy
+  `exhaustive: true` no longer suppresses the note (it only ever
+  meant the token scan was not truncated). Truncated stages from
+  the corrected shape are named in the note.
+- Corrected contract proposed for the WS1 backend owner in
+  `docs/DISCOVERY_REVIEW_API_CONTRACT.md` section A3.1 (additive):
+  `completeness: { token_query_complete, catalog_exhaustive,
+  stages_truncated: ["barcode_exact" | "name_exact" |
+  "similarity_scan"] }`, with semantics: token-query completion
+  says nothing about beers the token prefilter never retrieved
+  (a typo sharing no token can be missed even untruncated);
+  `catalog_exhaustive` is true only when every catalog beer was
+  scored. The client type (`MatchSuggestionsCompleteness` in
+  `src/api/discoveryReview.ts`) tolerates both shapes.
+- Tests: no-shared-token empty result (guidance shown, Add new
+  unchosen), legacy `exhaustive: true` still shows the note,
+  corrected complete shape suppresses it, truncated stage named,
+  same name / different brewery (both shown, neither preselected,
+  Approve disabled), barcode evidence (existing), 404 fallback
+  (existing).
+
+### Fix 3: review queue correctness
+
+- **Pagination shift (guided prev/next):** navigation no longer
+  trusts the stored page. `goTo` re-resolves from FRESH list data
+  for the active filter: it anchors on the current candidate's ID
+  (its last-known page, then adjacent pages, since a sub-page
+  shift can move it across a boundary); if the candidate has left
+  the filter entirely, its recorded global index into the fresh
+  ordering names the successor (next) or predecessor (previous).
+  Tests with a stateful queue fake: decide the last item on page
+  1 then Next lands on the true successor (63, not a skip);
+  decide a mid-page item then Previous lands on the true
+  predecessor; the current item vanishing between loads
+  (concurrent decision) resolves to its replacement. The existing
+  page-boundary test now asserts a page-2 fetch occurs during
+  re-resolution (the current page is re-read first).
+- **Bulk retry integrity:** the confirmed run is snapshotted at
+  confirmation time - decision, reason, and the exact items with
+  their displayed names (`bulkSnapshot`). Retry uses only the
+  snapshot and the failed IDs from the outcomes; it no longer
+  reads the live reason input (previously changing or clearing
+  the reason after a partial failure changed or blocked the
+  retry). Test: change the reason to a different value after a
+  partial failure; retry still applies the original reason to
+  only the failed ID.
+- **Image indicators:** audit of `serializeCandidateListRow`
+  (`server/src/routes/discovery.ts`): the key
+  `image_status_normalized` is always emitted, but the column is
+  nullable. Null is the server's own not-staged value (the list
+  filter maps null to the `not_staged` filter value; batch counts
+  group null under `not_staged`), so null still renders "Image:
+  not staged" - with the citation recorded in `queueFilters.ts`.
+  Any other unrecognized or absent value now renders "Image:
+  unknown" instead of silently defaulting to "not staged".
+  Unit tests in `queueFilters.test.ts` plus a queue-page test.
+
+### Disposable end-to-end rehearsal
+
+Runner + suite kept OUTSIDE the repo at
+`~/workspace/admin-image-workflow/rehearsal/` (`run-rehearsal.sh`,
+`fixpass.integration.test.ts`). It boots a socket-only disposable
+PostgreSQL 16 (same pattern as
+`server/scripts/test-discovery-manifests.sh`: base schema,
+migrations 001-005, viewer + reviewer roles, seeded admin users),
+composes the real app with the real restricted fetcher against a
+loopback stub origin and a real temp-dir image store, and runs
+with `RUN_DB_TESTS=1`. **Result: 5/5 passed.**
+
+1. Review intent: save with `expected_revision: null` -> 201;
+   stale revision -> **409**; current revision -> 201; stale
+   again -> **409**.
+2. Image decisions decided-once: approve -> 201; approve again
+   -> **409**; reject after approve -> **409**; exactly one audit
+   row.
+3. Manifest build with a selected candidate whose image was
+   rejected -> **422**, blocker `image_rejected`.
+4. Manifest build with a selected image_only candidate and no
+   approved image -> **422**, blocker
+   `approved_image_required`.
+5. Manifest build with a selected no-image new beer and a
+   selected approved-image new beer -> **201**; the no-image
+   record carries `image: null`, the approved record carries the
+   fetched bytes' SHA-256.
+
+Two rehearsal-environment findings (not product bugs):
+(a) jest does not exit after this suite without `--forceExit`
+(the app's Prisma singletons keep handles open); the runner uses
+`--runInBand --forceExit`. (b) `discovery_review_intents` has no
+DDL in admin migrations 001-005 - its table ships in the server
+repo's mirror migration - so intent routes 500 in the admin
+repo's disposable-DB pattern until the table exists; the runner
+creates it in the disposable database only, exactly as the
+Prisma schema model defines it, with the role scripts' grants.
+Worth Codex's attention when the manifests harness next runs:
+its intent cases would hit the same gap.
+
+### Gates
+
+- `CI=true npm test` (client): **30 suites / 160 tests, all
+  passing** (baseline 29 / 132; +1 suite, +28 tests net). One
+  flake seen during the pass: the new bulk-retry test raced the
+  post-confirm list reload (outcomes block unmounts while
+  loading); fixed by awaiting the retry button with `findByRole`,
+  after which the full suite is green.
+- `CI=true npm run build`: compiled successfully. (One ESLint
+  warning-as-error along the way - the snapshot object is now
+  memoized in `GuidedImagePanel`.)
+- `tsc --noEmit`: clean.
+- Nothing under `server/` was modified; the rehearsal's temporary
+  test copy and scratch database are removed on exit.
+
+### Views whose appearance/copy changed (for the WS4 screenshot re-capture)
+
+- Guided review, Image section: store-unset callout text (no
+  more "approved without an image decision"); preview load
+  failure now also blocks Approve (checklist state, not layout).
+- Guided review, Approve checklist: new **blocked** step state
+  (warning styling, `!` marker), a blocked-step explanatory note,
+  and a "Not ready for import yet" callout listing blockers.
+- Guided review, Likely matches: empty-suggestions paragraph
+  rewritten; the may-miss note now appears in MORE cases
+  (including legacy `exhaustive: true` responses) and names
+  truncated stages when provided; 404 note extended.
+- Queue list rows: rows with an unrecognized image status now
+  read "Image: unknown" (previously "Image: not staged").
+- Queue bulk outcomes: retry copy now says the originally
+  confirmed reason is used even if the input changed.
+
+## Fix pass screenshot re-capture
+
+Re-captured the new/changed states from the fix pass above into
+`~/workspace/admin-image-workflow/qa-screenshots-fixpass/`
+(34 files), using the WS4 method: the real queue and guided pages
+rendered by the throwaway harness with fixture data only (shell
+framing is fixture markup mirroring AdminLayout, as in WS4),
+Playwright's Chromium at 440x956 (iPhone 16 Pro Max emulation,
+DSF 3), 390x844, and 1440px desktop. The harness was extended from
+the preserved WS4 copy (fix-pass copy kept outside the repo at
+`~/workspace/admin-image-workflow/qa-harness-fixpass.tsx`) with
+three fixtures: candidate #65 whose reviewed fetch (500) carries a
+rejected decision, candidate #67 whose fetch (600) changes its
+recorded SHA-256 between the panel's read and the approve flow's
+re-read, and candidate #68 in the queue with an unrecognized
+`image_status_normalized` ("quarantined"). `src/qa-harness.tsx`
+and `src/index.tsx` were restored to their committed state after
+capture; the tree is otherwise exactly the fix-pass tree.
+
+Captured, per state:
+
+- **Rejected image hard block (#65):** `guided-rejected-{desktop,
+  mobile440,mobile390}.png` (full page after clicking Approve for
+  import), `guided-rejected-checklist-{desktop,mobile440,
+  mobile390}.png`, `guided-rejected-bottom-{desktop,mobile440,
+  mobile390}.png`. Intent step skipped (already saved), image step
+  blocked with the "!" marker and warning styling, the full
+  rejected + fetch-a-new-image recovery copy, select step left
+  pending, the blocked-step note, and the button relabeled
+  "Resume - finish the remaining steps". One precision: the
+  separate "Not ready for import yet" callout does NOT render on
+  this path (the rejected finish carries no notReadyReasons); the
+  not-ready outcome is stated in the blocked step itself ("this
+  candidate cannot be reported ready") plus the blocked-step note.
+- **Reviewed snapshot (#61):** `guided-snapshot-image-{desktop,
+  mobile440,mobile390}.png` (image panel with the stored preview
+  loaded and Approve/Reject image unlocked) and
+  `guided-snapshot-mobile440.png` (full page).
+- **Drift / re-view required (#67):**
+  `guided-drift-{desktop,mobile440}.png` (full page) and
+  `guided-drift-checklist-{desktop,mobile440}.png`. After the
+  block the panel has remounted and shows fetch 600 with the NEW
+  hash (b2b2...), so the reviewer must view the current preview
+  before resuming - visibly distinct from the rejected state.
+- **Store-unset, new copy (#63):**
+  `store-unset-fixpass-{desktop,mobile440,mobile390}.png`
+  (callout), `store-unset-fixpass-full-{mobile440,mobile390}.png`
+  (full page), `store-unset-fixpass-bottom-mobile440.png`
+  (max-scroll). The new text (image step cannot be completed; a
+  manifest build would refuse it, image_unverified) is present;
+  the old "can still be approved without an image decision"
+  wording is gone (asserted absent in the page text).
+- **Match guidance:** `matches-note-{desktop,mobile440}.png` -
+  the may-miss-matches note now renders ABOVE the suggestions for
+  candidate #66 under a legacy `exhaustive: true` response (it no
+  longer suppresses the note); `matches-empty-{desktop,
+  mobile440}.png` - the empty state for candidate #62 with the new
+  bounded-search wording ("not proof the beer is new").
+- **Queue "Image: unknown":** `queue-unknown-{desktop,mobile440,
+  mobile390}.png` - row #68 reads "Image: unknown".
+- **Bulk retry copy:** `bulk-confirm-{desktop,mobile440}.png` and
+  `bulk-outcomes-{desktop,mobile440}.png` - a bulk hold over #61
+  (succeeds) and #62 (fixture 500) ends with the per-item outcomes
+  and the snapshot-retry copy ("with the decision and the
+  originally confirmed reason, even if the reason input has
+  changed since"). The WS4 set had no bulk outcome capture, and
+  the retry paragraph is new copy, so this state is newly covered.
+
+Checks: no horizontal overflow at 440 or 390 in any captured view
+(document and body scroll widths equal the viewport width
+everywhere). Touch targets measured live at phone widths: queue
+Review buttons 44px; guided Fetch / Approve image 44px and Approve
+for import 45px under coarse pointers. Sticky bar verified by
+measurement, not just by eye: at maximum scroll on the rejected
+views the checklist end sits above the bar top (440: 637 vs 678;
+390: 525 vs 566; desktop: 622 vs 698), and on the store-unset page
+the last section ends at 654 vs bar top 678 with the callout fully
+scrollable above the bar. (Two capture artifacts, same class as
+WS4: full-page stitches render the sticky bar mid-page, and
+element shots of taller-than-viewport elements include the bar
+where it overlays the viewport - the measurements above are the
+authority, and the bottom viewport shots show the real end state.)
+
+Defects found: **none.** No `viewer.css` change was needed for
+the new states (the file's only diff remains the fix pass's own
+one-liner). One copy observation, not a layout defect and left
+untouched in this capture-only pass: the checklist renders a
+blocked step's message with the same "Failed:" prefix it uses for
+failed steps (see the checklist screenshots); the step is labeled
+"blocked" with the "!" marker, so the state is unambiguous, but
+the prefix wording belongs to the fix owner if it is worth
+changing.

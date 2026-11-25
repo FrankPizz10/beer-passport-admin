@@ -131,6 +131,63 @@ Degradation rules the UI follows:
   verbatim. With the field: "Image fetch limit reached - try again
   in about N minutes" (seconds under a minute).
 
+### A3.1 Corrected completeness semantics (PROPOSAL for the WS1 backend owner)
+
+The WS1 response's `exhaustive` flag cannot mean "all possible
+matches were searched", and the UI no longer treats it that way.
+The matcher retrieves a bounded candidate pool with literal-token
+queries before fuzzy scoring, so a catalog beer whose name shares
+no literal token with the staged name is never retrieved - even
+when the scan cap never binds (a typo in the staged name is enough)
+- and the exact-name and barcode stages are themselves bounded
+lookups that can be truncated. `exhaustive: true` today means at
+most "the token scan was not truncated by its cap".
+
+Proposed corrected response shape (additive; the current fields
+stay for compatibility):
+
+```json
+{
+  "candidate_id": 61,
+  "suggestions": [ "..." ],
+  "exhaustive": true,
+  "scanned": 550,
+  "completeness": {
+    "token_query_complete": true,
+    "catalog_exhaustive": false,
+    "stages_truncated": []
+  }
+}
+```
+
+Field semantics:
+
+- `token_query_complete` (boolean): the token-driven candidate
+  pool query ran to completion without hitting the scan cap. It
+  says nothing about beers the token prefilter never retrieved.
+- `catalog_exhaustive` (boolean): true ONLY when every catalog
+  beer was actually scored, so no match could have been missed by
+  the retrieval stage. With a token-prefilter design this is
+  expected to be false in the normal case.
+- `stages_truncated` (string array): the stages that hit a bound
+  and may have dropped candidates anyway: any of `barcode_exact`,
+  `name_exact`, `similarity_scan`. Empty when no stage truncated.
+
+UI behavior against BOTH shapes (implemented in
+`MatchSuggestionsPanel` / `suggestionsSearchComplete`):
+
+- The "suggestions may miss matches" note is shown UNLESS the
+  response affirmatively reports `completeness.catalog_exhaustive
+  === true`. With the old shape (no `completeness` object), the
+  note always shows - including when `exhaustive` is true - and
+  the scanned count plus any truncated stages are named when the
+  data carries them.
+- An empty suggestions list is never presented as proof the beer
+  is new; the panel says the search is bounded, offers manual
+  search as another bounded lookup (not a confirmation), and
+  leaves the Add new choice to the reviewer.
+- Suggestions never auto-select a target in either shape.
+
 ## B. Capabilities and their status
 
 ### B1. Review intent (replaces the former field-edits proposal)
