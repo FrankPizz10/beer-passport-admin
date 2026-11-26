@@ -54,9 +54,9 @@ test("renders a batch with counts and review progress", async () => {
   expect(await screen.findByText("Wikidata Harvest")).toBeInTheDocument();
   expect(screen.getByText("wikidata")).toBeInTheDocument();
   expect(screen.getByText(/30\/120 reviewed \(25%\)/)).toBeInTheDocument();
-  expect(screen.getByText(/us_produced: 80/)).toBeInTheDocument();
+  expect(screen.getByText(/us produced: 80/)).toBeInTheDocument();
   expect(screen.getByText(/verified: 30/)).toBeInTheDocument();
-  expect(screen.getByText(/origin_uncertain: 40/)).toBeInTheDocument();
+  expect(screen.getByText(/origin uncertain: 40/)).toBeInTheDocument();
   const links = screen.getAllByRole("link", { name: /wikidata harvest|view candidates/i });
   expect(links.length).toBeGreaterThan(0);
   links.forEach((link) =>
