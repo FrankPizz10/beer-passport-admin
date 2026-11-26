@@ -8,6 +8,7 @@ import { createApp } from '../app';
 import { createDiscoveryMatchRouter } from './discoveryMatch';
 
 const adminDeps = {
+  resolveAdminAccess: async () => 'owner' as const,
   verifyIdToken: jest.fn(async () => ({ uid: 'admin-uid', user_id: 'admin-uid', admin: true })),
   findUserByUid: jest.fn(async () => ({ id: 1, uid: 'admin-uid' })),
 };

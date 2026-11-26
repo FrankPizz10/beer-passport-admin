@@ -17,6 +17,7 @@ jest.mock("../Firebase/firebase", () => ({
 jest.mock("../api/client", () => ({
   apiGet: jest.fn(() =>
     Promise.resolve({
+      role: "owner",
       host: "localhost",
       port: 54329,
       database: "beerpassport_dev",
@@ -45,9 +46,27 @@ test("no user navigates to sign in", async () => {
   expect(await screen.findByText("Sign In Screen")).toBeInTheDocument();
 });
 
+test("catalog admins do not see owner-only navigation", async () => {
+  const { apiGet } = jest.requireMock("../api/client");
+  (apiGet as jest.Mock).mockResolvedValue({ role: "admin" });
+  mockOnAuth.mockImplementation((_auth: unknown, cb: (u: unknown) => void) => {
+    cb({ email: "reviewer@example.com" });
+    return () => {};
+  });
+  render(<MemoryRouter initialEntries={["/admin"]}><Routes>
+    <Route path="/" element={<div>Sign In</div>} />
+    <Route path="/admin" element={<AdminLayout />}><Route index element={<div>Catalog</div>} /></Route>
+  </Routes></MemoryRouter>);
+  expect(await screen.findByText("Catalog", { selector: "main *" })).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Accounts" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Overview" })).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Review Queue" })).toBeInTheDocument();
+});
+
 test("signed-in admin sees the shell; the nav toggle expands and collapses the sidebar", async () => {
   const { apiGet } = jest.requireMock("../api/client");
   (apiGet as jest.Mock).mockResolvedValue({
+    role: "owner",
     host: "localhost",
     port: 54329,
     database: "beerpassport_dev",
@@ -101,6 +120,7 @@ test("signed-in admin sees the shell; the nav toggle expands and collapses the s
 test("nav uses the clearer labels and the account menu holds email, target, and logout", async () => {
   const { apiGet } = jest.requireMock("../api/client");
   (apiGet as jest.Mock).mockResolvedValue({
+    role: "owner",
     host: "localhost",
     port: 54329,
     database: "beerpassport_dev",
@@ -129,9 +149,6 @@ test("nav uses the clearer labels and the account menu holds email, target, and 
   );
   expect(await screen.findByText("Batch Content")).toBeInTheDocument();
   // Renamed nav label + the new queue link.
-  expect(
-    screen.getByRole("link", { name: "Catalog Image Approvals" })
-  ).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "Review Queue" })
   ).toBeInTheDocument();

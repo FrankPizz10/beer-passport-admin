@@ -69,9 +69,9 @@ export interface ImageProvenance {
 
 export interface BeerDetail extends Beer {
   collections: Ref[];
-  user_beers_count: number;
-  liked_count: number;
-  counts?: { user_beers: number; liked_user_beers: number };
+  user_beers_count: number | null;
+  liked_count: number | null;
+  counts?: { user_beers: number | null; liked_user_beers: number | null };
 }
 
 // Response of GET /admin-api/v1/images/:beverageId: a short-lived
@@ -202,7 +202,7 @@ export interface Collection {
   updated_at?: string;
   beer_count?: number;
   member_count?: number;
-  badge_holder_count?: number;
+  badge_holder_count?: number | null;
 }
 
 export interface CollectionBeerRow {
@@ -231,7 +231,7 @@ export interface CollectionDetail extends Collection {
   beers: CollectionMemberRow[];
   members: CollectionMemberRow[];
   pagination: PaginationInfo;
-  badge_holder_count: number;
+  badge_holder_count: number | null;
 }
 
 export interface BeverageImage {

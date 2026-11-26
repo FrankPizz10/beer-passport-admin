@@ -34,6 +34,7 @@ const usersByUid: Record<string, any> = {
 };
 
 const authDeps = {
+  resolveAdminAccess: async () => 'owner' as const,
   verifyIdToken: jest.fn(async (token: string) => {
     const uid = token === 'frank-token' ? FRANK_UID : ADMIN_UID;
     return { uid, user_id: uid, admin: true };

@@ -146,7 +146,8 @@ BEGIN
           'discovery_batches', 'discovery_candidates',
           'discovery_candidate_pairs', 'discovery_decisions',
           'discovery_image_fetches', 'discovery_image_decisions',
-          'discovery_import_manifests', 'discovery_manifest_events', 'discovery_review_intents'))
+          'discovery_import_manifests', 'discovery_manifest_events', 'discovery_review_intents',
+          'admin_access_grants', 'admin_access_events'))
   LOOP
     findings := findings || format('table %s: %s', r.obj, r.priv);
   END LOOP;
@@ -283,7 +284,8 @@ BEGIN
     'discovery_batches', 'discovery_candidates',
     'discovery_candidate_pairs', 'discovery_decisions',
     'discovery_image_fetches', 'discovery_image_decisions',
-    'discovery_import_manifests', 'discovery_manifest_events', 'discovery_review_intents'
+    'discovery_import_manifests', 'discovery_manifest_events', 'discovery_review_intents',
+    'admin_access_grants', 'admin_access_events'
   ] LOOP
     IF EXISTS (SELECT 1 FROM pg_class c
                JOIN pg_namespace n ON n.oid = c.relnamespace

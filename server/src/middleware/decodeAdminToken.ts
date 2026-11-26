@@ -1,14 +1,10 @@
-// Port of decodeAdminToken from the pilot server:
-// ~/workspace/workstreams/pilot-impl/repo/src/Middleware/authUsers.ts
-// Phase 0 findings preserved: F-8 (a verified identity with no database
-// user row must not proceed with a null user) and F-10 (an admin claim
-// alone no longer grants access; the database user row is required, and a
-// missing row is a 401). Behavior, status codes, and message bodies match
-// the pilot function exactly. Dependencies are injected so tests can supply
-// a fake token verifier and user lookup.
+// Authenticate a Firebase identity, then authorize against current database
+// grants (or the configured owner UID) and require a matching user profile.
+// A Firebase custom claim alone never grants access to this API.
 import { Request, Response, NextFunction } from 'express';
 import { getPrisma } from '../db';
 import { getAuthVerifier } from '../firebase';
+import { resolveAdminAccess, AdminAccessRole } from '../adminAccess';
 
 export type DecodedToken = {
   uid?: string;
@@ -20,6 +16,7 @@ export type DecodedToken = {
 export type DecodeAdminTokenDeps = {
   verifyIdToken: (token: string) => Promise<DecodedToken | null | undefined>;
   findUserByUid: (uid: string) => Promise<{ id: number } | null>;
+  resolveAccess: (uid: string) => Promise<AdminAccessRole | null>;
 };
 
 const isAuthError = (e: unknown): boolean => {
@@ -53,14 +50,27 @@ export const createDecodeAdminToken = (deps: DecodeAdminTokenDeps) => {
       res.statusCode = 401;
       return res.json({ message: 'Unauthorized' });
     }
-    if (!decodeValue.admin) {
+    const uid = decodeValue.uid || decodeValue.user_id;
+    if (!uid) {
+      res.statusCode = 401;
+      return res.json({ message: 'Unauthorized' });
+    }
+    let role: AdminAccessRole | null;
+    try {
+      role = await deps.resolveAccess(uid);
+    } catch {
+      res.statusCode = 503;
+      return res.json({ message: 'Admin access is unavailable' });
+    }
+    if (!role) {
       res.statusCode = 403;
       return res.json({ message: 'Unauthorized Admin' });
     }
-    res.locals.firebaseUid = decodeValue.uid || decodeValue.user_id;
+    res.locals.firebaseUid = uid;
+    res.locals.adminRole = role;
     let user: { id: number } | null;
     try {
-      user = await deps.findUserByUid(decodeValue.user_id as string);
+      user = await deps.findUserByUid(uid);
     } catch (e) {
       res.statusCode = 500;
       return res.json({ message: 'Auth Admin Internal Error' });
@@ -82,6 +92,7 @@ export const defaultFindUserByUid = async (uid: string) => {
 const decodeAdminToken = createDecodeAdminToken({
   verifyIdToken: (token: string) => getAuthVerifier().verifyIdToken(token),
   findUserByUid: defaultFindUserByUid,
+  resolveAccess: (uid) => resolveAdminAccess(getPrisma(), uid, process.env.ADMIN_OWNER_UID),
 });
 
 export default decodeAdminToken;

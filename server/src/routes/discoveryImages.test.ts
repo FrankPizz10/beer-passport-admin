@@ -32,6 +32,7 @@ import { sha256Hex } from '../discoveryImageFetch';
 const ADMIN_UID = 'admin-uid-secret';
 
 const adminDeps = {
+  resolveAdminAccess: async () => 'owner' as const,
   verifyIdToken: jest.fn(async () => ({ uid: ADMIN_UID, user_id: ADMIN_UID, admin: true })),
   findUserByUid: jest.fn(async () => ({ id: 1, uid: ADMIN_UID, user_name: 'Admin One' })),
 };

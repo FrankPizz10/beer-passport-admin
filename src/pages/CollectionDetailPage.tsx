@@ -32,7 +32,7 @@ const CollectionDetailPage: React.FC = () => {
         <div><span className="field-label">ID</span>{data.id}</div>
         <div><span className="field-label">Difficulty</span>{fmtVal(data.difficulty)}</div>
         <div><span className="field-label">Description</span>{fmtVal(data.description)}</div>
-        <div><span className="field-label">Badge holders</span>{data.badge_holder_count}</div>
+        {data.badge_holder_count != null && <div><span className="field-label">Badge holders</span>{data.badge_holder_count}</div>}
       </div>
       <h2>Member Beers</h2>
       <DataTable rows={rows} emptyMessage="This collection has no member beers in this database."

@@ -90,6 +90,7 @@ run('discovery match suggestions against the disposable database', () => {
     noMatchCandidateId = await mkCandidate('Zqx Wobble Juice', 'Nowhere Brewing', null);
 
     app = createApp({
+      resolveAdminAccess: async () => 'owner',
       prisma: viewer,
       verifyIdToken: async () => ({ uid: 'integration-admin', user_id: 'integration-admin', admin: true }),
       findUserByUid: async () => ({ id: 1, uid: 'integration-admin' }),

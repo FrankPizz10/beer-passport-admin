@@ -66,6 +66,7 @@ export type AuthVerifier = {
     maxResults?: number,
     pageToken?: string,
   ) => Promise<{ users: any[]; pageToken?: string }>;
+  getUserByEmail?: (email: string) => Promise<{ uid: string; disabled: boolean; emailVerified: boolean }>;
 };
 
 export const getAuthVerifier = (): AuthVerifier => {
@@ -74,12 +75,16 @@ export const getAuthVerifier = (): AuthVerifier => {
     configured,
     verifyIdToken: async (token: string) => {
       if (!configured) throw new NotConfiguredError();
-      return getApp().auth().verifyIdToken(token);
+      return getApp().auth().verifyIdToken(token, true);
     },
     listUsers: async (maxResults = 100, pageToken?: string) => {
       if (!configured) throw new NotConfiguredError();
       const result: any = await getApp().auth().listUsers(maxResults, pageToken);
       return { users: result.users || [], pageToken: result.pageToken };
+    },
+    getUserByEmail: async (email: string) => {
+      if (!configured) throw new NotConfiguredError();
+      return getApp().auth().getUserByEmail(email);
     },
   };
 };

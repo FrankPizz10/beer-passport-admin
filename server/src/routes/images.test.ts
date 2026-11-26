@@ -13,6 +13,7 @@ const PRIVATE_KEY = 'private/beers/beer-7.jpg';
 const SIGNED_URL = 'https://signed.example.com/presigned-object?X-Amz-Signature=test';
 
 const adminDeps = {
+  resolveAdminAccess: async (uid: string) => uid === 'u2' ? null : 'owner' as const,
   verifyIdToken: jest.fn(async () => ({ uid: 'admin-uid', user_id: 'admin-uid', admin: true })),
   findUserByUid: jest.fn(async () => ({ id: 1, uid: 'admin-uid' })),
 };

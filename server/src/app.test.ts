@@ -2,6 +2,7 @@ import request from 'supertest';
 import { createApp } from './app';
 
 const adminDeps = {
+  resolveAdminAccess: async () => 'owner' as const,
   verifyIdToken: jest.fn(async () => ({ uid: 'admin-uid', user_id: 'admin-uid', admin: true })),
   findUserByUid: jest.fn(async () => ({ id: 1, uid: 'admin-uid' })),
 };
@@ -9,6 +10,7 @@ const adminDeps = {
 const makeStubPrisma = () => {
   const emptyPage = { count: jest.fn(async () => 0), findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null), findFirst: jest.fn(async () => null) };
   return {
+    $queryRaw: jest.fn(async () => []),
     beers: { ...emptyPage, count: jest.fn(async () => 0), findMany: jest.fn(async () => []), findUnique: jest.fn(async () => null) },
     breweries: { ...emptyPage },
     categories: { ...emptyPage },
@@ -72,13 +74,22 @@ describe('app', () => {
       expect(row).not.toHaveProperty('uid');
     }
   });
-  it('accounts degrades gracefully when Firebase is not configured', async () => {
+  it('does not expose aggregate user badge counts to catalog admins', async () => {
+    const prisma = makeStubPrisma();
+    prisma.collections.findMany = jest.fn(async () => [{ id: 1, name: 'Set', _count: { collection_beers: 2, user_badges: 40 } }]) as any;
+    const app = createApp({ prisma, ...adminDeps, resolveAdminAccess: async () => 'admin' });
+    const res = await auth(request(app).get('/admin-api/v1/catalog/collections'));
+    expect(res.status).toBe(200);
+    expect(res.body.results[0].badge_holder_count).toBeNull();
+    expect(res.body.results[0]._count).not.toHaveProperty('user_badges');
+  });
+  it('accounts list comes from the admin grant store', async () => {
     const app = createApp({
       prisma: makeStubPrisma(), ...adminDeps,
       firebaseVerifier: { configured: false, verifyIdToken: adminDeps.verifyIdToken, listUsers: jest.fn(async () => { throw new Error('not configured'); }) } as any,
     });
     const res = await auth(request(app).get('/admin-api/v1/admin/accounts'));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ results: [], firebase_configured: false, next_cursor: null });
+    expect(res.body).toMatchObject({ results: [], writes_enabled: false });
   });
 });

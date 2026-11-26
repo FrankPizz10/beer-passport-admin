@@ -29,7 +29,6 @@ const CRUMB_LABELS: Record<string, string> = {
   users: "Users",
   admin: "Admin Accounts",
   accounts: "Accounts",
-  "api-keys": "API Keys",
 };
 
 const buildCrumbs = (pathname: string): { label: string; to?: string }[] => {
@@ -56,12 +55,13 @@ const buildCrumbs = (pathname: string): { label: string; to?: string }[] => {
   return crumbs;
 };
 
-// Client side guarding is UX only. The server rechecks the admin claim on
-// every API request, so this layout is not a security boundary.
+// Client-side guarding is UX only. The API checks the current access grant
+// on every request; this layout is not a security boundary.
 const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [checked, setChecked] = useState(false);
+  const [role, setRole] = useState<"owner" | "admin" | null>(null);
   const [email, setEmail] = useState<string>("");
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [navOpen, setNavOpen] = useState(false);
@@ -103,13 +103,13 @@ const AdminLayout: React.FC = () => {
         navigate("/");
         return;
       }
-      user
-        .getIdTokenResult()
+      apiGet<{ role: "owner" | "admin" }>("/admin/session")
         .then((result) => {
-          if (!result.claims.admin) {
+          if (result.role !== "owner" && result.role !== "admin") {
             navigate("/");
             return;
           }
+          setRole(result.role);
           const stateEmail = (location.state as any)?.user;
           setEmail(stateEmail || user.email || auth.currentUser?.email || "");
           setChecked(true);
@@ -207,7 +207,7 @@ const AdminLayout: React.FC = () => {
           aria-label="Admin"
         >
           <div className="nav-section">Catalog</div>
-          <NavLink to="catalog/overview">Overview</NavLink>
+          {role === "owner" && <NavLink to="catalog/overview">Overview</NavLink>}
           <NavLink to="catalog/beers">Beers</NavLink>
           <NavLink to="catalog/breweries">Breweries</NavLink>
           <NavLink to="catalog/categories">Categories</NavLink>
@@ -221,9 +221,7 @@ const AdminLayout: React.FC = () => {
           <NavLink to="discovery/manifests">Manifests</NavLink>
           <div className="nav-section">User Data</div>
           <NavLink to="users">Users</NavLink>
-          <div className="nav-section">Admin Accounts</div>
-          <NavLink to="admin/accounts">Accounts</NavLink>
-          <NavLink to="admin/api-keys">API Keys</NavLink>
+          {role === "owner" && <><div className="nav-section">Admin Accounts</div><NavLink to="admin/accounts">Accounts</NavLink></>}
         </nav>
         <main className="admin-main">
           {(() => {

@@ -3,6 +3,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import SignInPage from "./SignInPage";
 import { onAuthStateChanged, signInWithEmailAndPassword } from "firebase/auth";
+import { apiGet } from "../api/client";
+
+jest.mock("../api/client", () => ({ apiGet: jest.fn() }));
 
 jest.mock("firebase/auth", () => ({
   signInWithEmailAndPassword: jest.fn(),
@@ -38,6 +41,7 @@ function userWithClaims(claims: Record<string, unknown>) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (apiGet as jest.Mock).mockResolvedValue({ role: "owner" });
 });
 
 test("signed in admin navigates to /admin", async () => {
@@ -50,12 +54,13 @@ test("signed in admin navigates to /admin", async () => {
 });
 
 test("signed in user without admin claim shows not an admin message", async () => {
+  (apiGet as jest.Mock).mockRejectedValue(new Error("Forbidden"));
   mockOnAuth.mockImplementation((_auth: unknown, cb: (u: unknown) => void) => {
     cb(userWithClaims({}));
     return () => {};
   });
   renderPage();
-  expect(await screen.findByText("User is not an admin!")).toBeInTheDocument();
+  expect(await screen.findByText("Admin access could not be verified.")).toBeInTheDocument();
 });
 
 test("failed sign in shows the error text visibly", async () => {
