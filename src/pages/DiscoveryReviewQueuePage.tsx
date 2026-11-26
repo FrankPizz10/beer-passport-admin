@@ -108,6 +108,8 @@ const DiscoveryReviewQueuePage: React.FC<{
         next.set("filter", stored.filter);
         if (stored.sub) next.set("sub", stored.sub);
         if (stored.q) next.set("q", stored.q);
+        if (stored.brewery) next.set("brewery", stored.brewery);
+        if (stored.style) next.set("style", stored.style);
         next.set("page", String(stored.page));
         next.set("page_size", String(stored.pageSize));
         setSearchParams(next, { replace: true });
@@ -118,6 +120,8 @@ const DiscoveryReviewQueuePage: React.FC<{
 
   const batchIdParam = searchParams.get("batch");
   const query = searchParams.get("q") ?? "";
+  const brewery = searchParams.get("brewery") ?? "";
+  const style = searchParams.get("style") ?? "";
   const filter = queueFilterDef(searchParams.get("filter"));
   const sub = searchParams.get("sub") ?? filter.subs?.[0]?.value;
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
@@ -168,6 +172,8 @@ const DiscoveryReviewQueuePage: React.FC<{
       .listBatchCandidates(batchId, {
         ...filter.params(sub),
         q: query || undefined,
+        brewery: brewery || undefined,
+        style: style || undefined,
         page,
         page_size: pageSize,
         sort: "name",
@@ -185,6 +191,8 @@ const DiscoveryReviewQueuePage: React.FC<{
           page,
           pageSize,
           q: query,
+          brewery,
+          style,
         });
       })
       .catch((e) => {
@@ -199,7 +207,7 @@ const DiscoveryReviewQueuePage: React.FC<{
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, batchId, filter.id, sub, page, pageSize, query, reloadTick]);
+  }, [client, batchId, filter.id, sub, page, pageSize, query, brewery, style, reloadTick]);
 
   // Selection and bulk state belong to one page view only.
   useEffect(() => {
@@ -207,7 +215,7 @@ const DiscoveryReviewQueuePage: React.FC<{
     setBulkConfirm(null);
     setBulkOutcomes(null);
     setBulkSnapshot(null);
-  }, [batchId, filter.id, sub, page, query]);
+  }, [batchId, filter.id, sub, page, query, brewery, style]);
 
   // Scroll the returned-to item into view.
   useEffect(() => {
@@ -318,6 +326,8 @@ const DiscoveryReviewQueuePage: React.FC<{
     q.set("filter", filter.id);
     if (sub) q.set("sub", sub);
     if (query) q.set("q", query);
+    if (brewery) q.set("brewery", brewery);
+    if (style) q.set("style", style);
     q.set("page", String(page));
     return `/admin/discovery/review-queue/${candidateId}?${q.toString()}`;
   };
@@ -349,6 +359,8 @@ const DiscoveryReviewQueuePage: React.FC<{
       )}
 
       <div className="filters rq-filters">
+        <div><label htmlFor="rq-brewery">Brewery</label><input id="rq-brewery" value={brewery} onChange={(e) => updateParams({ brewery: e.target.value || null, page: "1" })} /></div>
+        <div><label htmlFor="rq-style">Style</label><input id="rq-style" value={style} onChange={(e) => updateParams({ style: e.target.value || null, page: "1" })} /></div>
         <div>
           <label htmlFor="rq-search">Search beer or brewery</label>
           <input id="rq-search" value={query} onChange={(e) => updateParams({ q: e.target.value || null, page: "1" })} />
@@ -481,7 +493,7 @@ const DiscoveryReviewQueuePage: React.FC<{
                       <StatusChip status={row.review_status} />
                       {row.hold_reason && (
                         <span className="status-chip status-chip--neutral">
-                          {row.hold_reason}
+                          {row.hold_reason.replace(/_/g, " ")}
                         </span>
                       )}
                       {row.matched_beer_id !== null &&

@@ -148,6 +148,16 @@ describe('GET /discovery/batches/:id/candidates', () => {
     expect(where.OR).toHaveLength(2);
   });
 
+  it('combines brewery and style filters with the selected status', async () => {
+    const prisma = prismaWith({ batches: [batchRow()], candidates: [] });
+    const res = await auth(request(appWith(prisma)).get('/admin-api/v1/discovery/batches/1/candidates?brewery=Coors&style=Lager&review_status=selected'));
+    expect(res.status).toBe(200);
+    expect((prisma.discovery_candidates.findMany as jest.Mock).mock.calls[0][0].where).toMatchObject({
+      review_status: 'selected', brewery_name: { contains: 'Coors', mode: 'insensitive' },
+      style: { contains: 'Lager', mode: 'insensitive' },
+    });
+  });
+
   it('rejects an unknown filter value with 400', async () => {
     const prisma = prismaWith({ batches: [batchRow()] });
     const res = await auth(request(appWith(prisma)).get('/admin-api/v1/discovery/batches/1/candidates?origin_bucket=mars'));

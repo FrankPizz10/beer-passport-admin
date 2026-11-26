@@ -100,6 +100,8 @@ const DiscoveryGuidedReviewPage: React.FC<{
   const filter = queueFilterDef(searchParams.get("filter"));
   const sub = searchParams.get("sub") ?? filter.subs?.[0]?.value;
   const query = searchParams.get("q") ?? "";
+  const brewery = searchParams.get("brewery") ?? "";
+  const style = searchParams.get("style") ?? "";
   const queuePage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1);
 
   const [candidate, setCandidate] =
@@ -150,9 +152,11 @@ const DiscoveryGuidedReviewPage: React.FC<{
     q.set("filter", filter.id);
     if (sub) q.set("sub", sub);
     if (query) q.set("q", query);
+    if (brewery) q.set("brewery", brewery);
+    if (style) q.set("style", style);
     q.set("page", String(queuePage));
     return `/admin/discovery/review-queue?${q.toString()}`;
-  }, [batchId, filter.id, sub, queuePage, query]);
+  }, [batchId, filter.id, sub, queuePage, query, brewery, style]);
 
   const guidedUrl = useCallback(
     (id: number, page: number) => {
@@ -161,10 +165,12 @@ const DiscoveryGuidedReviewPage: React.FC<{
       q.set("filter", filter.id);
       if (sub) q.set("sub", sub);
       if (query) q.set("q", query);
+      if (brewery) q.set("brewery", brewery);
+      if (style) q.set("style", style);
       q.set("page", String(page));
       return `/admin/discovery/review-queue/${id}?${q.toString()}`;
     },
-    [batchId, filter.id, sub, query]
+    [batchId, filter.id, sub, query, brewery, style]
   );
 
   // --- Load the candidate bundle (prefetch-aware) -------------------------
@@ -279,6 +285,8 @@ const DiscoveryGuidedReviewPage: React.FC<{
       const resp = await client.listBatchCandidates(batchId, {
         ...filter.params(sub),
         q: query || undefined,
+        brewery: brewery || undefined,
+        style: style || undefined,
         page,
         page_size: stored?.pageSize ?? 50,
         sort: "name",
@@ -289,7 +297,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
         total: resp?.pagination.total_results ?? null,
       };
     },
-    [batchId, client, filter, sub, query]
+    [batchId, client, filter, sub, query, brewery, style]
   );
 
   const applyPage = useCallback(
@@ -491,8 +499,8 @@ const DiscoveryGuidedReviewPage: React.FC<{
   });
 
   // --- Hold / Reject ---------------------------------------------------------
-  const decide = async (decision: "hold" | "reject") => {
-    if (!holdReason) {
+  const decide = async (decision: "hold" | "reject" | "unhold") => {
+    if (decision !== "unhold" && !holdReason) {
       setDecisionError(
         `Choose a reason before recording a ${decision} decision.`
       );
@@ -504,11 +512,13 @@ const DiscoveryGuidedReviewPage: React.FC<{
     try {
       await client.decideCandidate(candidateId, {
         decision,
-        reason: holdReason,
+        reason: decision === "unhold" ? undefined : holdReason,
         note: holdNote.trim() ? holdNote.trim() : undefined,
       });
       setDecisionMessage(
-        decision === "hold"
+        decision === "unhold"
+          ? "Candidate returned to pending. You can change its review choice."
+          : decision === "hold"
           ? "Candidate held. It stays in the batch with this reason on record."
           : "Candidate rejected. That state is final."
       );
@@ -759,7 +769,7 @@ const DiscoveryGuidedReviewPage: React.FC<{
               <option value="">Select a reason</option>
               {HOLD_REASONS.map((r) => (
                 <option key={r} value={r}>
-                  {r}
+                  {r.replace(/_/g, " ")}
                 </option>
               ))}
             </select>
@@ -774,11 +784,16 @@ const DiscoveryGuidedReviewPage: React.FC<{
             />
           </div>
           <div className="decision-actions">
+            {status === "held" && (
+              <button type="button" className="btn" disabled={decisionBusy} onClick={() => decide("unhold")}>
+                Return to pending
+              </button>
+            )}
             <button
               type="button"
               className="btn"
               data-choice="3"
-              disabled={decisionBusy || status !== "pending"}
+              disabled={decisionBusy || (status !== "pending" && status !== "selected")}
               onClick={() => decide("hold")}
             >
               3. Hold

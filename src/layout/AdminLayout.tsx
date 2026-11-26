@@ -214,7 +214,6 @@ const AdminLayout: React.FC = () => {
           <NavLink to="catalog/styles">Styles</NavLink>
           <NavLink to="catalog/collections">Collections</NavLink>
           <NavLink to="catalog/beverage-images">Beverage Images</NavLink>
-          <NavLink to="catalog/image-queue">Catalog Image Approvals</NavLink>
           <div className="nav-section">Discovery</div>
           <NavLink to="discovery/review-queue">Review Queue</NavLink>
           <NavLink to="discovery/batches">Batches</NavLink>
@@ -223,7 +222,6 @@ const AdminLayout: React.FC = () => {
           <NavLink to="users">Users</NavLink>
           <div className="nav-section">Admin Accounts</div>
           <NavLink to="admin/accounts">Accounts</NavLink>
-          <NavLink to="admin/api-keys">API Keys</NavLink>
         </nav>
         <main className="admin-main">
           {(() => {

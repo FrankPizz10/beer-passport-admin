@@ -181,6 +181,18 @@ test("filter composition maps to the endpoint's own parameters", async () => {
   );
 });
 
+test("brewery and style filters are sent to the server and carried to review", async () => {
+  const fake = makeFake([row()]);
+  renderQueue(fake.client);
+  await screen.findByText("Bud Light");
+  fireEvent.change(screen.getByLabelText("Brewery"), { target: { value: "Coors" } });
+  fireEvent.change(screen.getByLabelText("Style"), { target: { value: "Lager" } });
+  await waitFor(() => expect(fake.listCalls.some((p) => p.brewery === "Coors" && p.style === "Lager")).toBe(true));
+  const href = (await screen.findAllByRole("link", { name: "Review" }))[0].getAttribute("href");
+  expect(href).toContain("brewery=Coors");
+  expect(href).toContain("style=Lager");
+});
+
 test("bulk hold runs sequentially with per-item outcomes and retries only the failures", async () => {
   const fake = makeFake([
     row(),

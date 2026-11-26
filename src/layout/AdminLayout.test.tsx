@@ -130,8 +130,8 @@ test("nav uses the clearer labels and the account menu holds email, target, and 
   expect(await screen.findByText("Batch Content")).toBeInTheDocument();
   // Renamed nav label + the new queue link.
   expect(
-    screen.getByRole("link", { name: "Catalog Image Approvals" })
-  ).toBeInTheDocument();
+    screen.queryByRole("link", { name: "Catalog Image Approvals" })
+  ).not.toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "Review Queue" })
   ).toBeInTheDocument();

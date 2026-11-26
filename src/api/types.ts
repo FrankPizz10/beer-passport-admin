@@ -420,6 +420,7 @@ export interface DiscoveryPair {
 // id + user_name only; the API never sends the Firebase UID.
 export interface DiscoveryDecision {
   id: number;
+  candidate?: { name: string | null; brewery_name: string | null } | null;
   candidate_id: number | null;
   pair_id: number | null;
   decision: string;

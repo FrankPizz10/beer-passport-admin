@@ -197,8 +197,8 @@ const MatchSuggestionsPanel: React.FC<{
         </ul>
       )}
       <p className="gate-note">
-        None of these is right? Use "None of these" by choosing the
-        Add new choice below, or search the catalog manually in the
+        If none is right, scroll to Your choice and select the radio option
+        "1. Add new", or search the catalog manually in the
         image-only section. Suggestions never select a target on
         their own, and an empty result here never proves there is
         no match.

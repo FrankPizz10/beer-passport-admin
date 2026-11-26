@@ -122,6 +122,7 @@ const parseRequiredReason = (body: unknown, note: string | null): string => {
 export const serializeDecision = (d: any) => ({
   id: d.id,
   candidate_id: d.candidate_id,
+  candidate: d.candidate ? { name: d.candidate.name, brewery_name: d.candidate.brewery_name } : null,
   pair_id: d.pair_id,
   decision: d.decision,
   from_status: d.from_status,
@@ -376,7 +377,7 @@ export const createDiscoveryDecisionsRouter = (readPrisma: any, writePrisma: any
         orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         skip: skipFor(pagination),
         take: pagination.pageSize,
-        include: { decider: { select: { id: true, user_name: true } } },
+        include: { decider: { select: { id: true, user_name: true } }, candidate: { select: { name: true, brewery_name: true } } },
       }),
     ]);
     return {

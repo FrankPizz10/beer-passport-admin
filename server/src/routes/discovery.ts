@@ -147,6 +147,8 @@ export const createDiscoveryRouter = (prisma: any) => {
         { brewery_name: { contains: String(q), mode: 'insensitive' } },
       ];
     }
+    if (typeof req.query.brewery === 'string' && req.query.brewery.trim()) where.brewery_name = { contains: req.query.brewery.trim(), mode: 'insensitive' };
+    if (typeof req.query.style === 'string' && req.query.style.trim()) where.style = { contains: req.query.style.trim(), mode: 'insensitive' };
     if (originBucket !== null) where.origin_bucket = originBucket;
     if (imageStatus === 'not_staged') where.image_status_normalized = null;
     else if (imageStatus !== null) where.image_status_normalized = imageStatus;
