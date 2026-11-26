@@ -8,6 +8,7 @@ import Pagination from "../components/Pagination";
 import { ErrorState, Loading } from "../components/States";
 import { fmtDate, fmtVal } from "../components/helpers";
 import { useListControls } from "../components/useListControls";
+import CatalogEditor from "../components/CatalogEditor";
 
 const BreweryDetailPage: React.FC = () => {
   const { id } = useParams();
@@ -22,6 +23,7 @@ const BreweryDetailPage: React.FC = () => {
   return (
     <div>
       <h1>{data.name}</h1>
+      {id && <CatalogEditor entity="breweries" id={id} onChanged={reload} />}
       <div className="detail-grid">
         <div><span className="field-label">ID</span>{data.id}</div>
         <div><span className="field-label">Address 1</span>{fmtVal(data.address1)}</div>

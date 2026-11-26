@@ -18,6 +18,7 @@ const CRUMB_LABELS: Record<string, string> = {
   styles: "Styles",
   collections: "Collections",
   "beverage-images": "Beverage Images",
+  changes: "Catalog Changes",
   "image-queue": "Catalog Image Approvals",
   discovery: "Discovery",
   "review-queue": "Review Queue",
@@ -214,7 +215,7 @@ const AdminLayout: React.FC = () => {
           <NavLink to="catalog/styles">Styles</NavLink>
           <NavLink to="catalog/collections">Collections</NavLink>
           <NavLink to="catalog/beverage-images">Beverage Images</NavLink>
-          <NavLink to="catalog/image-queue">Catalog Image Approvals</NavLink>
+          <NavLink to="catalog/changes">Catalog Changes</NavLink>
           <div className="nav-section">Discovery</div>
           <NavLink to="discovery/review-queue">Review Queue</NavLink>
           <NavLink to="discovery/batches">Batches</NavLink>

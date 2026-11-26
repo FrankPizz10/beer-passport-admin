@@ -48,7 +48,7 @@ export const breweryListSelect = {
   state: true,
   country: true,
   last_mod: true,
-  _count: { select: { beers: true } },
+  _count: { select: { beers: { where: { archived_at: null } } } },
 } as const;
 
 export const breweryDetailSelect = {
@@ -71,7 +71,7 @@ export const categoryListSelect = {
   id: true,
   cat_name: true,
   last_mod: true,
-  _count: { select: { beers: true, styles: true } },
+  _count: { select: { beers: { where: { archived_at: null } }, styles: { where: { archived_at: null } } } },
 } as const;
 
 export const categoryDetailSelect = {
@@ -86,7 +86,7 @@ export const styleListSelect = {
   style_name: true,
   last_mod: true,
   category: { select: { id: true, cat_name: true } },
-  _count: { select: { beers: true } },
+  _count: { select: { beers: { where: { archived_at: null } } } },
 } as const;
 
 export const styleDetailSelect = {

@@ -254,7 +254,7 @@ export const runImport = async (
         // inserts are unaffected. Acquired after the advisory lock
         // so concurrent imports keep a single lock order.
         await tx.$executeRawUnsafe(
-          'LOCK TABLE beers, breweries, beverage_images IN SHARE ROW EXCLUSIVE MODE',
+          'LOCK TABLE beers, breweries, categories, styles, beverage_images IN SHARE ROW EXCLUSIVE MODE',
         );
 
         const row = await tx.discovery_import_manifests.findUnique({
@@ -433,8 +433,8 @@ export const runImport = async (
         const imageOnlyKeys = new Set<string>();
         for (const record of records) {
           if (content.schema === REVIEW_MANIFEST_SCHEMA && record.kind === 'image_only') {
-            const target = await tx.beers.findUnique({ where: { id: record.target_beer_id }, select: { id: true, brewery_id: true } });
-            if (!target) throw refused('check4', `candidate ${record.candidate_id} target beer no longer exists.`);
+            const target = await tx.beers.findUnique({ where: { id: record.target_beer_id }, select: { id: true, brewery_id: true, archived_at: true } });
+            if (!target || target.archived_at) throw refused('check4', `candidate ${record.candidate_id} target beer no longer exists or is archived.`);
             if (!record.image) throw refused('check4', `candidate ${record.candidate_id} has no approved image.`);
             const imageKey = `${target.id}:${record.image.sha256}`;
             if (imageOnlyKeys.has(imageKey)) throw refused('check4', `manifest contains the same image more than once for beer ${target.id}.`);
@@ -446,7 +446,7 @@ export const runImport = async (
           }
           if (record.brewery.mode === 'existing') {
             const brewery = await tx.breweries.findUnique({ where: { id: record.brewery.brewery_id } });
-            if (!brewery) {
+            if (!brewery || brewery.archived_at) {
               throw refused('check4', `candidate ${record.candidate_id} (${record.candidate_key}) references brewery ${record.brewery.brewery_id}, which no longer exists.`);
             }
             breweryIdByRecord.set(record.candidate_id, brewery.id);
@@ -463,7 +463,7 @@ export const runImport = async (
           }
           if (record.style.mode === 'existing') {
             const style = await tx.styles.findUnique({ where: { id: record.style.style_id } });
-            if (!style) {
+            if (!style || style.archived_at) {
               throw refused('check4', `candidate ${record.candidate_id} (${record.candidate_key}) references style ${record.style.style_id}, which no longer exists.`);
             }
             if ((style.cat_id ?? null) !== record.style.category_id) {

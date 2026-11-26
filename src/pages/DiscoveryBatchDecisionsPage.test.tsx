@@ -70,9 +70,9 @@ test("renders the batch audit with decider names, decisions, and links", async (
     await screen.findByRole("heading", { name: "Batch Decision Audit" })
   ).toBeInTheDocument();
   expect(screen.getByText("hold")).toBeInTheDocument();
-  expect(screen.getByText("mark_duplicate")).toBeInTheDocument();
+  expect(screen.getByText("mark duplicate")).toBeInTheDocument();
   expect(screen.getAllByText("Admin One")).toHaveLength(2);
-  expect(screen.getByText("origin_uncertain")).toBeInTheDocument();
+  expect(screen.getByText("origin uncertain")).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "Candidate 9" })
   ).toHaveAttribute("href", "/admin/discovery/candidates/9");

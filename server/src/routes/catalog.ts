@@ -54,7 +54,7 @@ export const createCatalogRouter = (prisma: any) => {
       const row = await prisma.categories.findUnique({ where: { id: categoryId }, select: { id: true } });
       if (!row) throw invalidParameter('category_id ' + categoryId + ' does not exist.');
     }
-    const where: any = {};
+    const where: any = { archived_at: null };
     const q = (req.query as any).q;
     if (q) where.name = { contains: String(q), mode: 'insensitive' };
     if (breweryId !== null) where.brewery_id = breweryId;
@@ -111,7 +111,7 @@ export const createCatalogRouter = (prisma: any) => {
   router.get('/catalog/breweries', wrap(async (req, res) => {
     const pagination = parsePagination(req.query as any);
     const sort = parseSort(req.query as any, ['name', 'city', 'last_mod', 'id']);
-    const where: any = {};
+    const where: any = { archived_at: null };
     const q = (req.query as any).q;
     if (q) where.name = { contains: String(q), mode: 'insensitive' };
     if ((req.query as any).country) where.country = { contains: String((req.query as any).country), mode: 'insensitive' };
@@ -133,7 +133,7 @@ export const createCatalogRouter = (prisma: any) => {
     const brewery = await prisma.breweries.findUnique({ where: { id }, select: P.breweryDetailSelect });
     if (!brewery) throw notFound('Brewery not found.');
     const pagination = parsePagination(req.query as any);
-    const beerWhere = { brewery_id: id };
+    const beerWhere = { brewery_id: id, archived_at: null };
     const [beerCount, beers, geocode] = await Promise.all([
       prisma.beers.count({ where: beerWhere }),
       prisma.beers.findMany({ where: beerWhere, select: P.beerListSelect, orderBy: { id: 'asc' }, skip: skipFor(pagination), take: pagination.pageSize }),
@@ -154,7 +154,7 @@ export const createCatalogRouter = (prisma: any) => {
   router.get('/catalog/categories', wrap(async (req, res) => {
     const pagination = parsePagination(req.query as any);
     const sort = parseSort(req.query as any, ['cat_name', 'last_mod', 'id']);
-    const where: any = {};
+    const where: any = { archived_at: null };
     const q = (req.query as any).q;
     if (q) where.cat_name = { contains: String(q), mode: 'insensitive' };
     const [total, rows] = await Promise.all([
@@ -178,8 +178,8 @@ export const createCatalogRouter = (prisma: any) => {
       // Capped for the same reason as the beer memberships query above;
       // the whole styles table is 147 rows today, so 500 never truncates
       // in practice while keeping the query bounded (QA finding).
-      prisma.styles.findMany({ where: { cat_id: id }, select: P.styleDetailSelect, orderBy: { id: 'asc' }, take: 500 }),
-      prisma.beers.count({ where: { cat_id: id } }),
+      prisma.styles.findMany({ where: { cat_id: id, archived_at: null }, select: P.styleDetailSelect, orderBy: { id: 'asc' }, take: 500 }),
+      prisma.beers.count({ where: { cat_id: id, archived_at: null } }),
     ]);
     res.json({
       ...category, name: category.cat_name,
@@ -191,7 +191,7 @@ export const createCatalogRouter = (prisma: any) => {
   router.get('/catalog/styles', wrap(async (req, res) => {
     const pagination = parsePagination(req.query as any);
     const sort = parseSort(req.query as any, ['style_name', 'last_mod', 'id']);
-    const where: any = {};
+    const where: any = { archived_at: null };
     const q = (req.query as any).q;
     if (q) where.style_name = { contains: String(q), mode: 'insensitive' };
     const categoryId = parseFilterId((req.query as any).category_id, 'category_id');
@@ -211,7 +211,7 @@ export const createCatalogRouter = (prisma: any) => {
     const id = parseIdParam(req.params.id);
     const style = await prisma.styles.findUnique({ where: { id }, select: P.styleDetailSelect });
     if (!style) throw notFound('Style not found.');
-    const beerCount = await prisma.beers.count({ where: { style_id: id } });
+    const beerCount = await prisma.beers.count({ where: { style_id: id, archived_at: null } });
     res.json({
       ...style, name: style.style_name, category: categoryRef(style.category), beer_count: beerCount,
     });

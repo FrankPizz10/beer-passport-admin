@@ -323,6 +323,20 @@ const renderGuided = (client: DiscoveryReviewClient, id = 61) =>
     </MemoryRouter>
   );
 
+test("a selected candidate can be held without changing its saved intent", async () => {
+  const fake = makeFake({ candidates: { 61: detail({ review_status: "selected" }) } });
+  renderGuided(fake.client);
+  await screen.findByRole("heading", { name: "Bud Light" });
+  fireEvent.change(screen.getByLabelText("Reason (required for hold and reject)"), {
+    target: { value: "image_unverified" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "3. Hold" }));
+  await waitFor(() => expect(fake.client.decideCandidate).toHaveBeenCalledWith(61, {
+    decision: "hold", reason: "image_unverified", note: undefined,
+  }));
+  expect(fake.client.saveReviewIntent).not.toHaveBeenCalled();
+});
+
 beforeEach(() => {
   sessionStorage.clear();
 });

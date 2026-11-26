@@ -110,6 +110,8 @@ export interface TableFingerprint {
 export interface CatalogFingerprint {
   beers: TableFingerprint;
   breweries: TableFingerprint;
+  categories: TableFingerprint;
+  styles: TableFingerprint;
   beverage_images: TableFingerprint;
 }
 
@@ -119,15 +121,17 @@ const fingerprintSql = (table: string, rowExpression: string): string =>
 export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, string> = {
   beers: fingerprintSql(
     'beers',
-    "concat_ws('|', id::text, name, coalesce(brewery_id::text, ''), coalesce(last_mod::text, ''))",
+    "(to_jsonb(beers) - 'search_vector')::text",
   ),
   breweries: fingerprintSql(
     'breweries',
-    "concat_ws('|', id::text, name, coalesce(last_mod::text, ''))",
+    'to_jsonb(breweries)::text',
   ),
+  categories: fingerprintSql('categories', 'to_jsonb(categories)::text'),
+  styles: fingerprintSql('styles', 'to_jsonb(styles)::text'),
   beverage_images: fingerprintSql(
     'beverage_images',
-    "concat_ws('|', id::text, beverage_id::text, status, coalesce(updated_at::text, ''))",
+    'to_jsonb(beverage_images)::text',
   ),
 };
 
@@ -140,7 +144,7 @@ export type RawQuery = (sql: string) => Promise<any[]>;
 // own snapshot).
 export const computeCatalogFingerprint = async (queryRaw: RawQuery): Promise<CatalogFingerprint> => {
   const out = {} as CatalogFingerprint;
-  for (const table of ['beers', 'breweries', 'beverage_images'] as const) {
+  for (const table of ['beers', 'breweries', 'categories', 'styles', 'beverage_images'] as const) {
     const rows = await queryRaw(FINGERPRINT_SQL[table]);
     const row = rows[0] || { count: 0, md5: '' };
     out[table] = { count: Number(row.count), md5: String(row.md5) };
@@ -153,7 +157,7 @@ export const fingerprintsEqual = (a: unknown, b: unknown): boolean =>
 
 export const fingerprintDiff = (expected: any, actual: any): string[] => {
   const diffs: string[] = [];
-  for (const table of ['beers', 'breweries', 'beverage_images']) {
+  for (const table of ['beers', 'breweries', 'categories', 'styles', 'beverage_images']) {
     const e = expected?.[table];
     const a = actual?.[table];
     if (!e || !a || e.count !== a.count || e.md5 !== a.md5) {

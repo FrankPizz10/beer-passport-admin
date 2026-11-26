@@ -47,6 +47,8 @@ const asAdmin = (r: request.Test) => r.set('Authorization', 'Bearer admin-token'
 const FINGERPRINT = {
   beers: { count: 2, md5: 'a'.repeat(32) },
   breweries: { count: 1, md5: 'b'.repeat(32) },
+  categories: { count: 1, md5: 'd'.repeat(32) },
+  styles: { count: 1, md5: 'e'.repeat(32) },
   beverage_images: { count: 0, md5: 'c'.repeat(32) },
 };
 
@@ -148,6 +150,8 @@ const buildHarness = (opts: {
     $queryRawUnsafe: async (sql: string) => {
       if (sql.includes('FROM beverage_images')) return fingerprintRows('beverage_images');
       if (sql.includes('FROM breweries')) return fingerprintRows('breweries');
+      if (sql.includes('FROM categories')) return fingerprintRows('categories');
+      if (sql.includes('FROM styles')) return fingerprintRows('styles');
       return fingerprintRows('beers');
     },
     discovery_import_manifests: {

@@ -44,6 +44,8 @@ const banned = ['.create(', '.createMany(', '.update(', '.updateMany(', '.delete
 
 const MUTATION_ALLOWED_FILES = new Set([
   path.join(__dirname, 'adminAccess.ts'),
+  path.join(__dirname, 'catalogChanges.ts'),
+  path.join(__dirname, 'routes', 'catalogChanges.ts'),
   path.join(__dirname, 'writeDb.ts'),
   path.join(__dirname, 'routes', 'imageApprovals.ts'),
   path.join(__dirname, 'discoveryWriteDb.ts'),
@@ -66,7 +68,7 @@ const collect = (dir: string): string[] => {
 
 describe('read only guard', () => {
   it('the mutation exception is exactly the eight write-path modules, and they exist', () => {
-    expect(MUTATION_ALLOWED_FILES.size).toBe(9);
+    expect(MUTATION_ALLOWED_FILES.size).toBe(11);
     for (const file of MUTATION_ALLOWED_FILES) {
       expect(fs.existsSync(file)).toBe(true);
     }
@@ -91,6 +93,7 @@ describe('read only guard', () => {
       path.join(routesDir, 'discoveryDecisions.ts'),
       path.join(routesDir, 'discoveryImages.ts'),
       path.join(routesDir, 'discoveryManifests.ts'),
+      path.join(routesDir, 'catalogChanges.ts'),
     ]);
     for (const file of collect(routesDir)) {
       const text = fs.readFileSync(file, 'utf8');

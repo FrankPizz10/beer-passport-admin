@@ -5,6 +5,7 @@ import { useApiData } from "../api/useApiData";
 import { BeerDetail } from "../api/types";
 import { ErrorState, Loading } from "../components/States";
 import PrivateBeerImage from "../components/PrivateBeerImage";
+import CatalogEditor from "../components/CatalogEditor";
 import { fmtBool, fmtDate, fmtVal, initialsFor } from "../components/helpers";
 
 const BeerDetailPage: React.FC = () => {
@@ -20,6 +21,7 @@ const BeerDetailPage: React.FC = () => {
   return (
     <div>
       <h1>{data.name}</h1>
+      {id && <CatalogEditor entity="beers" id={id} onChanged={reload} />}
       <div className="detail-grid">
         <div><span className="field-label">ID</span>{data.id}</div>
         <div><span className="field-label">ABV</span>{fmtVal(data.abv)}</div>

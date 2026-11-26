@@ -90,6 +90,8 @@ const prismaWith = (opts: {
     findUnique: jest.fn(async ({ where }: any) =>
       opts.candidateById && opts.candidateById[where.id] ? opts.candidateById[where.id] : null),
   },
+  categories: { findMany: jest.fn(async () => [{ id: 3 }]) },
+  styles: { findMany: jest.fn(async () => [{ style_name: 'American Lager' }, { style_name: 'Pilsner' }]) },
 });
 
 const appWith = (prisma: any) => createApp({ ...adminDeps, prisma } as any);
@@ -147,6 +149,38 @@ describe('GET /discovery/batches/:id/candidates', () => {
     expect(where.image_status_normalized).toBeNull();
     expect(where.source).toBe('wikidata');
     expect(where.OR).toHaveLength(2);
+  });
+
+  it('combines brewery and style filters with the selected status', async () => {
+    const prisma = prismaWith({ batches: [batchRow()], candidates: [] });
+    const res = await auth(request(appWith(prisma)).get('/admin-api/v1/discovery/batches/1/candidates?brewery=Coors&style=Lager&review_status=selected'));
+    expect(res.status).toBe(200);
+    expect((prisma.discovery_candidates.findMany as jest.Mock).mock.calls[0][0].where).toMatchObject({
+      review_status: 'selected', brewery_name: { contains: 'Coors', mode: 'insensitive' },
+      style: { contains: 'Lager', mode: 'insensitive' },
+    });
+  });
+
+  it('filters by category only through recognized active catalog styles', async () => {
+    const prisma = prismaWith({ batches: [batchRow()], candidates: [] });
+    const res = await auth(request(appWith(prisma)).get('/admin-api/v1/discovery/batches/1/candidates?category=Light%20Lager&style=American&review_status=selected'));
+    expect(res.status).toBe(200);
+    expect(prisma.categories.findMany).toHaveBeenCalledWith({
+      where: { cat_name: { contains: 'Light Lager', mode: 'insensitive' }, archived_at: null },
+      select: { id: true },
+    });
+    expect(prisma.styles.findMany).toHaveBeenCalledWith({
+      where: { cat_id: { in: [3] }, archived_at: null },
+      select: { style_name: true },
+    });
+    const where = (prisma.discovery_candidates.findMany as jest.Mock).mock.calls[0][0].where;
+    expect(where).toMatchObject({
+      review_status: 'selected',
+      AND: [
+        { style: { contains: 'American', mode: 'insensitive' } },
+        { style: { in: ['American Lager', 'Pilsner'], mode: 'insensitive' } },
+      ],
+    });
   });
 
   it('rejects an unknown filter value with 400', async () => {

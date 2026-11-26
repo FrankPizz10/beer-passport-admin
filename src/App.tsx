@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import ErrorBoundary from "./components/ErrorBoundary";
 import AdminLayout from "./layout/AdminLayout";
 import CatalogOverviewPage from "./pages/CatalogOverviewPage";
+import CatalogChangesPage from "./pages/CatalogChangesPage";
 import BeersPage from "./pages/BeersPage";
 import BeerDetailPage from "./pages/BeerDetailPage";
 import BreweriesPage from "./pages/BreweriesPage";
@@ -16,7 +17,6 @@ import StyleDetailPage from "./pages/StyleDetailPage";
 import CollectionsPage from "./pages/CollectionsPage";
 import CollectionDetailPage from "./pages/CollectionDetailPage";
 import BeverageImagesPage from "./pages/BeverageImagesPage";
-import ImageQueuePage from "./pages/ImageQueuePage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import AdminAccountsPage from "./pages/AdminAccountsPage";
@@ -50,7 +50,8 @@ function AppRoutes() {
           <Route path="catalog/collections" element={<CollectionsPage />} />
           <Route path="catalog/collections/:id" element={<CollectionDetailPage />} />
           <Route path="catalog/beverage-images" element={<BeverageImagesPage />} />
-          <Route path="catalog/image-queue" element={<ImageQueuePage />} />
+          <Route path="catalog/changes" element={<CatalogChangesPage />} />
+          <Route path="catalog/image-queue" element={<Navigate to="/admin/discovery/review-queue" replace />} />
           <Route path="discovery/batches" element={<DiscoveryBatchesPage />} />
           <Route path="discovery/manifests" element={<DiscoveryManifestsPage />} />
           <Route path="discovery/manifests/:id" element={<DiscoveryManifestDetailPage />} />

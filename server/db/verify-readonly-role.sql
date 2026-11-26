@@ -102,7 +102,7 @@ BEGIN
         'discovery_candidate_pairs', 'discovery_decisions',
         'discovery_image_fetches', 'discovery_image_decisions',
         'discovery_import_manifests', 'discovery_manifest_events', 'discovery_review_intents',
-        'admin_access_grants', 'admin_access_events'));
+        'admin_access_grants', 'admin_access_events', 'catalog_change_requests', 'catalog_change_events'));
   SELECT unexpected + count(*) INTO unexpected
   FROM pg_attribute att
   JOIN pg_class c ON c.oid = att.attrelid
