@@ -254,9 +254,10 @@ export const runImport = async (
         // plain SELECTs keep working and this transaction's own
         // inserts are unaffected. Acquired after the advisory lock
         // so concurrent imports keep a single lock order.
-        await tx.$executeRawUnsafe(
-          'LOCK TABLE beers, breweries, categories, styles, beverage_images IN SHARE ROW EXCLUSIVE MODE',
-        );
+        await tx.$executeRaw`
+          LOCK TABLE beers, breweries, categories, styles, beverage_images
+          IN SHARE ROW EXCLUSIVE MODE
+        `;
 
         const row = await tx.discovery_import_manifests.findUnique({
           where: { id: opts.manifestId },
