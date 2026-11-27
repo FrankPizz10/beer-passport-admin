@@ -399,20 +399,23 @@ run('discovery manifests + import executor against the disposable database', () 
       });
       expect(candidate?.review_status).toBe('imported');
       expect(candidate?.matched_beer_id).toBe(assignment.beer_id);
-      if (assignment.image_id !== null) {
-        const image = await owner.beverage_images.findUnique({ where: { id: assignment.image_id } });
-        expect(image?.status).toBe('approved');
-        expect(image?.verified_at).not.toBeNull();
-        expect(image?.beverage_id).toBe(assignment.beer_id);
-        expect(image?.attribution).toContain(`manifest ${built.id}`);
-        expect(image?.attribution).toContain('image decision');
-        // The S3 gap, closed: storage_key is the content-addressed
-        // object key (the bare key the presigned read path
-        // resolves), NOT the source URL; source_url still carries
-        // the origin.
-        expect(image?.storage_key).toBe(expectedStorageKey);
-        expect(image?.source_url).not.toBe(expectedStorageKey);
-      }
+    }
+    const imageAssignments = report.id_assignments.filter(
+      (assignment): assignment is typeof assignment & { image_id: number } =>
+        assignment.image_id !== null,
+    );
+    for (const assignment of imageAssignments) {
+      const image = await owner.beverage_images.findUnique({ where: { id: assignment.image_id } });
+      expect(image?.status).toBe('approved');
+      expect(image?.verified_at).not.toBeNull();
+      expect(image?.beverage_id).toBe(assignment.beer_id);
+      expect(image?.attribution).toContain(`manifest ${built.id}`);
+      expect(image?.attribution).toContain('image decision');
+      // The S3 gap, closed: storage_key is the content-addressed
+      // object key (the bare key the presigned read path resolves),
+      // NOT the source URL; source_url still carries the origin.
+      expect(image?.storage_key).toBe(expectedStorageKey);
+      expect(image?.source_url).not.toBe(expectedStorageKey);
     }
 
     // The uploader received exactly the verified bytes, once per
@@ -586,9 +589,9 @@ run('discovery manifests + import executor against the disposable database', () 
     // Simulate ids reserved outside the tables (another tool, a
     // restored dump, explicit-id inserts): every catalog sequence
     // sits ahead of its table's maximum.
-    await owner.$queryRawUnsafe(`SELECT setval('beers_id_seq', ${maxBeer + 1000}, true)`);
-    await owner.$queryRawUnsafe(`SELECT setval('breweries_id_seq', ${maxBrewery + 500}, true)`);
-    await owner.$queryRawUnsafe(`SELECT setval('beverage_images_id_seq', ${maxImage + 500}, true)`);
+    await owner.$queryRaw`SELECT setval('beers_id_seq', ${maxBeer + 1000}, true)`;
+    await owner.$queryRaw`SELECT setval('breweries_id_seq', ${maxBrewery + 500}, true)`;
+    await owner.$queryRaw`SELECT setval('beverage_images_id_seq', ${maxImage + 500}, true)`;
     const report = await runImport(
       loader, { manifestId: built.id, expectedSha256: built.sha256 }, importDeps(),
     );
@@ -598,13 +601,13 @@ run('discovery manifests + import executor against the disposable database', () 
     expect(report.id_assignments[0].beer_id).toBeGreaterThan(maxBeer + 1000);
     expect(report.id_assignments[0].image_id).not.toBeNull();
     expect(report.id_assignments[0].image_id as number).toBeGreaterThan(maxImage + 500);
-    const beerSeq = await owner.$queryRawUnsafe<Array<{ v: number }>>(
-      'SELECT last_value::int AS v FROM beers_id_seq',
-    );
+    const beerSeq = await owner.$queryRaw<Array<{ v: number }>>`
+      SELECT last_value::int AS v FROM beers_id_seq
+    `;
     expect(beerSeq[0].v).toBeGreaterThanOrEqual(maxBeer + 1000);
-    const brewerySeq = await owner.$queryRawUnsafe<Array<{ v: number }>>(
-      'SELECT last_value::int AS v FROM breweries_id_seq',
-    );
+    const brewerySeq = await owner.$queryRaw<Array<{ v: number }>>`
+      SELECT last_value::int AS v FROM breweries_id_seq
+    `;
     expect(brewerySeq[0].v).toBeGreaterThanOrEqual(maxBrewery + 500);
   });
 
