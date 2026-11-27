@@ -106,6 +106,10 @@ jobs:
         working-directory: .
         run: sh server/scripts/test-admin-access-postgres.sh
 
+      - name: Catalog changes PostgreSQL integration
+        working-directory: .
+        run: sh server/scripts/test-catalog-changes-postgres.sh
+
       - name: Deployment rollback checks
         run: bash ../scripts/test-deploy-api.sh
 
