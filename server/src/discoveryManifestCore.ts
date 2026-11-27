@@ -30,6 +30,7 @@
 //   breweries:       id, name, last_mod
 //   beverage_images: id, beverage_id, status, updated_at
 import * as crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { ReviewIntent } from './discoveryReviewIntent';
 
 export const MANIFEST_SCHEMA = 'discovery-import-manifest/1';
@@ -110,37 +111,43 @@ export interface TableFingerprint {
 export interface CatalogFingerprint {
   beers: TableFingerprint;
   breweries: TableFingerprint;
+  categories: TableFingerprint;
+  styles: TableFingerprint;
   beverage_images: TableFingerprint;
 }
 
-const fingerprintSql = (table: string, rowExpression: string): string =>
-  `SELECT count(*)::int AS count, md5(coalesce(string_agg(md5(${rowExpression}), '' ORDER BY id), '')) AS md5 FROM ${table}`;
+// Identifiers/expressions below are fixed source constants. They are the
+// only fragments passed through Prisma.raw; request data is never included.
+const fingerprintSql = (table: string, rowExpression: string): Prisma.Sql =>
+  Prisma.sql`SELECT count(*)::int AS count, md5(coalesce(string_agg(md5(${Prisma.raw(rowExpression)}), '' ORDER BY id), '')) AS md5 FROM ${Prisma.raw(table)}`;
 
-export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, string> = {
+export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, Prisma.Sql> = {
   beers: fingerprintSql(
     'beers',
-    "concat_ws('|', id::text, name, coalesce(brewery_id::text, ''), coalesce(last_mod::text, ''))",
+    "(to_jsonb(beers) - 'search_vector')::text",
   ),
   breweries: fingerprintSql(
     'breweries',
-    "concat_ws('|', id::text, name, coalesce(last_mod::text, ''))",
+    'to_jsonb(breweries)::text',
   ),
+  categories: fingerprintSql('categories', 'to_jsonb(categories)::text'),
+  styles: fingerprintSql('styles', 'to_jsonb(styles)::text'),
   beverage_images: fingerprintSql(
     'beverage_images',
-    "concat_ws('|', id::text, beverage_id::text, status, coalesce(updated_at::text, ''))",
+    'to_jsonb(beverage_images)::text',
   ),
 };
 
-export type RawQuery = (sql: string) => Promise<any[]>;
+export type FingerprintQuery = (sql: Prisma.Sql) => Promise<any[]>;
 
-// Runs the three fingerprint queries through the caller's query
-// function (a Prisma client's $queryRawUnsafe, on whichever identity
+// Runs the five fingerprint queries through the caller's query
+// function (a Prisma client's parameterized $queryRaw, on whichever identity
 // the caller holds; inside the import transaction it MUST be the
 // transaction client so the fingerprint is read from the import's
 // own snapshot).
-export const computeCatalogFingerprint = async (queryRaw: RawQuery): Promise<CatalogFingerprint> => {
+export const computeCatalogFingerprint = async (queryRaw: FingerprintQuery): Promise<CatalogFingerprint> => {
   const out = {} as CatalogFingerprint;
-  for (const table of ['beers', 'breweries', 'beverage_images'] as const) {
+  for (const table of ['beers', 'breweries', 'categories', 'styles', 'beverage_images'] as const) {
     const rows = await queryRaw(FINGERPRINT_SQL[table]);
     const row = rows[0] || { count: 0, md5: '' };
     out[table] = { count: Number(row.count), md5: String(row.md5) };
@@ -153,7 +160,7 @@ export const fingerprintsEqual = (a: unknown, b: unknown): boolean =>
 
 export const fingerprintDiff = (expected: any, actual: any): string[] => {
   const diffs: string[] = [];
-  for (const table of ['beers', 'breweries', 'beverage_images']) {
+  for (const table of ['beers', 'breweries', 'categories', 'styles', 'beverage_images']) {
     const e = expected?.[table];
     const a = actual?.[table];
     if (!e || !a || e.count !== a.count || e.md5 !== a.md5) {

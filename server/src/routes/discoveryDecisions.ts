@@ -122,6 +122,7 @@ const parseRequiredReason = (body: unknown, note: string | null): string => {
 export const serializeDecision = (d: any) => ({
   id: d.id,
   candidate_id: d.candidate_id,
+  candidate: d.candidate ? { name: d.candidate.name, brewery_name: d.candidate.brewery_name } : null,
   pair_id: d.pair_id,
   decision: d.decision,
   from_status: d.from_status,
@@ -171,8 +172,8 @@ export const createDiscoveryDecisionsRouter = (readPrisma: any, writePrisma: any
       if (!rows.length) throw notFound('Discovery candidate not found.');
       if (rows[0].review_status !== 'pending') throw conflict('Review intent can only be changed while the candidate is pending.');
       if (intent.mode === 'image_only') {
-        const target = await tx.beers.findUnique({ where: { id: intent.target_beer_id }, select: { id: true } });
-        if (!target) throw notFound('Target beer not found.');
+        const target = await tx.beers.findUnique({ where: { id: intent.target_beer_id }, select: { id: true, archived_at: true } });
+        if (!target || target.archived_at) throw notFound('Target beer not found or archived.');
       }
       const previous = await tx.discovery_review_intents.findFirst({ where: { candidate_id: id }, orderBy: { id: 'desc' } });
       if ((previous?.id ?? null) !== body.expected_revision) throw conflict('Review intent changed; reload before saving.');
@@ -376,7 +377,7 @@ export const createDiscoveryDecisionsRouter = (readPrisma: any, writePrisma: any
         orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         skip: skipFor(pagination),
         take: pagination.pageSize,
-        include: { decider: { select: { id: true, user_name: true } } },
+        include: { decider: { select: { id: true, user_name: true } }, candidate: { select: { name: true, brewery_name: true } } },
       }),
     ]);
     return {

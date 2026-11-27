@@ -147,6 +147,31 @@ export const createDiscoveryRouter = (prisma: any) => {
         { brewery_name: { contains: String(q), mode: 'insensitive' } },
       ];
     }
+    if (typeof req.query.brewery === 'string' && req.query.brewery.trim()) where.brewery_name = { contains: req.query.brewery.trim(), mode: 'insensitive' };
+    if (typeof req.query.style === 'string' && req.query.style.trim()) where.style = { contains: req.query.style.trim(), mode: 'insensitive' };
+    if (typeof req.query.category === 'string' && req.query.category.trim()) {
+      const categoryQuery = req.query.category.trim().slice(0, 100);
+      const categories = await prisma.categories.findMany({
+        where: { cat_name: { contains: categoryQuery, mode: 'insensitive' }, archived_at: null },
+        select: { id: true },
+      });
+      const styles = categories.length ? await prisma.styles.findMany({
+        where: { cat_id: { in: categories.map((category: any) => category.id) }, archived_at: null },
+        select: { style_name: true },
+      }) : [];
+      // Candidate rows store a source style label rather than a category ID.
+      // Match only when that label maps to a current catalog style; do not
+      // claim an unknown source label belongs to a category.
+      const categoryStyleFilter = styles.length
+        ? { in: styles.map((style: any) => style.style_name), mode: 'insensitive' }
+        : { in: ['__no_matching_catalog_style__'], mode: 'insensitive' };
+      const styleTextFilter = where.style;
+      delete where.style;
+      where.AND = [
+        ...(styleTextFilter ? [{ style: styleTextFilter }] : []),
+        { style: categoryStyleFilter },
+      ];
+    }
     if (originBucket !== null) where.origin_bucket = originBucket;
     if (imageStatus === 'not_staged') where.image_status_normalized = null;
     else if (imageStatus !== null) where.image_status_normalized = imageStatus;

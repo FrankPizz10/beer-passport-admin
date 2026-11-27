@@ -420,6 +420,7 @@ export interface DiscoveryPair {
 // id + user_name only; the API never sends the Firebase UID.
 export interface DiscoveryDecision {
   id: number;
+  candidate?: { name: string | null; brewery_name: string | null } | null;
   candidate_id: number | null;
   pair_id: number | null;
   decision: string;
@@ -545,6 +546,8 @@ export interface DiscoveryImageDecision {
 export interface DiscoveryCatalogFingerprint {
   beers: { count: number; md5: string };
   breweries: { count: number; md5: string };
+  categories?: { count: number; md5: string };
+  styles?: { count: number; md5: string };
   beverage_images: { count: number; md5: string };
 }
 

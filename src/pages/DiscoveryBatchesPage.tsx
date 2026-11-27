@@ -30,7 +30,7 @@ const BreakdownList: React.FC<{
         <ul>
           {entries.map(([label, count]) => (
             <li key={label}>
-              {label}: {count}
+              {label.replace(/_/g, " ")}: {count}
             </li>
           ))}
         </ul>
@@ -186,18 +186,19 @@ const DiscoveryBatchesPage: React.FC = () => {
               </div>
               <p>
                 <Link
+                  className="btn"
                   to={`/admin/discovery/review-queue?batch=${batch.id}`}
                 >
                   Open review queue
                 </Link>{" "}
-                |{" "}
                 <Link
+                  className="btn"
                   to={`/admin/discovery/batches/${batch.id}/candidates`}
                 >
                   View candidates
                 </Link>{" "}
-                |{" "}
                 <Link
+                  className="btn"
                   to={`/admin/discovery/batches/${batch.id}/decisions`}
                 >
                   Decision audit

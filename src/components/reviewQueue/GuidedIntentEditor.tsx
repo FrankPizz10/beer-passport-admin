@@ -185,6 +185,8 @@ const GuidedIntentEditor: React.FC<{
           This candidate is {candidate.review_status}; a review intent
           can be saved only while a candidate is pending, so the
           intent controls are disabled.
+          {candidate.review_status === "selected" && " To change this choice, hold the candidate below, then return it to pending."}
+          {candidate.review_status === "held" && " Use Return to pending below to change this choice."}
         </p>
       )}
       <p>

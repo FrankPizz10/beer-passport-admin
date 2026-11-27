@@ -240,8 +240,8 @@ export const createDiscoveryManifestsRouter = (
     for (const d of imageDecisions) imageDecisionByFetch.set(d.fetch_id, d);
 
     const [breweryRows, styleRows] = await Promise.all([
-      readPrisma.breweries.findMany({ select: { id: true, name: true } }),
-      readPrisma.styles.findMany({ select: { id: true, style_name: true, cat_id: true } }),
+      readPrisma.breweries.findMany({ select: { id: true, name: true, archived_at: true } }),
+      readPrisma.styles.findMany({ select: { id: true, style_name: true, cat_id: true, archived_at: true } }),
     ]);
     const breweriesByNormalized = new Map<string, number[]>();
     for (const b of breweryRows) {
@@ -255,7 +255,7 @@ export const createDiscoveryManifestsRouter = (
     }
 
     const fingerprint = await computeCatalogFingerprint(
-      (sql: string) => readPrisma.$queryRawUnsafe(sql),
+      (sql) => readPrisma.$queryRaw(sql),
     );
 
     const blockers: Array<{ candidate_id: number; candidate_key: string; reasons: string[] }> = [];
@@ -266,8 +266,8 @@ export const createDiscoveryManifestsRouter = (
         ? { ...staged, ...reviewIntent.intent.beer, normalized_brewery: normalizeText(reviewIntent.intent.beer.brewery_name) }
         : staged;
       if (reviewIntent?.intent.mode === 'image_only') {
-        const target = await readPrisma.beers.findUnique({ where: { id: reviewIntent.intent.target_beer_id }, select: { id: true } });
-        if (!target) {
+        const target = await readPrisma.beers.findUnique({ where: { id: reviewIntent.intent.target_beer_id }, select: { id: true, archived_at: true } });
+        if (!target || target.archived_at) {
           blockers.push({ candidate_id: staged.id, candidate_key: staged.candidate_key, reasons: ['target_beer_missing'] });
           continue;
         }
@@ -280,6 +280,10 @@ export const createDiscoveryManifestsRouter = (
       const normalizedBrewery = candidate.normalized_brewery ?? normalizeText(candidate.brewery_name);
       if (candidate.brewery_name && String(candidate.brewery_name).trim()) {
         const matches = breweriesByNormalized.get(normalizedBrewery || normalizeText(candidate.brewery_name)) || [];
+        if (reviewIntent?.intent.mode !== 'image_only' && matches.length === 1 && breweryRows.some((b: any) => b.id === matches[0] && b.archived_at)) {
+          blockers.push({ candidate_id: staged.id, candidate_key: staged.candidate_key, reasons: ['brewery_archived'] });
+          continue;
+        }
         if (matches.length === 1) brewery = { mode: 'existing', brewery_id: matches[0] };
         else if (matches.length > 1) brewery = { mode: 'ambiguous' };
       }
@@ -287,6 +291,10 @@ export const createDiscoveryManifestsRouter = (
       let style: StyleLookup = { mode: 'none' };
       if (candidate.style && String(candidate.style).trim()) {
         const matches = stylesByNormalized.get(normalizeText(candidate.style)) || [];
+        if (reviewIntent?.intent.mode !== 'image_only' && matches.length === 1 && matches[0].archived_at) {
+          blockers.push({ candidate_id: staged.id, candidate_key: staged.candidate_key, reasons: ['style_archived'] });
+          continue;
+        }
         if (matches.length === 1) {
           style = { mode: 'existing', style_id: matches[0].id, category_id: matches[0].cat_id ?? null };
         } else {

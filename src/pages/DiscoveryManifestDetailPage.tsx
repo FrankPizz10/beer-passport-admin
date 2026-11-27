@@ -176,6 +176,8 @@ const DiscoveryManifestDetailPage: React.FC = () => {
               breweries: {manifest.catalog_fingerprint.breweries.count} rows,
               md5 <code>{manifest.catalog_fingerprint.breweries.md5}</code>
             </li>
+            {manifest.catalog_fingerprint.categories && <li>categories: {manifest.catalog_fingerprint.categories.count} rows, md5 <code>{manifest.catalog_fingerprint.categories.md5}</code></li>}
+            {manifest.catalog_fingerprint.styles && <li>styles: {manifest.catalog_fingerprint.styles.count} rows, md5 <code>{manifest.catalog_fingerprint.styles.md5}</code></li>}
             <li>
               beverage_images: {manifest.catalog_fingerprint.beverage_images.count}{" "}
               rows, md5{" "}

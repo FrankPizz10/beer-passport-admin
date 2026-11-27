@@ -131,6 +131,9 @@ export interface QueueState {
   page: number;
   pageSize: number;
   q?: string;
+  brewery?: string;
+  style?: string;
+  category?: string;
 }
 
 export const readStoredQueueState = (): QueueState | null => {

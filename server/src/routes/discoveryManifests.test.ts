@@ -20,6 +20,7 @@
 // - no response ever contains a Firebase UID.
 // All Prisma dependencies are in-memory stubs.
 import request from 'supertest';
+import { Prisma } from '@prisma/client';
 import { createApp } from '../app';
 import { canonicalManifestBytes, manifestSha256, sha256Hex } from '../discoveryManifestCore';
 
@@ -47,6 +48,8 @@ const asAdmin = (r: request.Test) => r.set('Authorization', 'Bearer admin-token'
 const FINGERPRINT = {
   beers: { count: 2, md5: 'a'.repeat(32) },
   breweries: { count: 1, md5: 'b'.repeat(32) },
+  categories: { count: 1, md5: 'd'.repeat(32) },
+  styles: { count: 1, md5: 'e'.repeat(32) },
   beverage_images: { count: 0, md5: 'c'.repeat(32) },
 };
 
@@ -145,9 +148,11 @@ const buildHarness = (opts: {
     },
     breweries: { findMany: async () => state.breweries },
     styles: { findMany: async () => state.styles },
-    $queryRawUnsafe: async (sql: string) => {
-      if (sql.includes('FROM beverage_images')) return fingerprintRows('beverage_images');
-      if (sql.includes('FROM breweries')) return fingerprintRows('breweries');
+    $queryRaw: async (query: Prisma.Sql) => {
+      if (query.sql.includes('FROM beverage_images')) return fingerprintRows('beverage_images');
+      if (query.sql.includes('FROM breweries')) return fingerprintRows('breweries');
+      if (query.sql.includes('FROM categories')) return fingerprintRows('categories');
+      if (query.sql.includes('FROM styles')) return fingerprintRows('styles');
       return fingerprintRows('beers');
     },
     discovery_import_manifests: {

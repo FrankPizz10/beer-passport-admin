@@ -9,6 +9,7 @@ import { ErrorState, Loading } from "../components/States";
 import { fmtDate } from "../components/helpers";
 import { useListControls } from "../components/useListControls";
 import { styleName } from "./StylesPage";
+import CatalogEditor from "../components/CatalogEditor";
 
 const StyleDetailPage: React.FC = () => {
   const { id } = useParams();
@@ -30,6 +31,7 @@ const StyleDetailPage: React.FC = () => {
   return (
     <div>
       <h1>{styleName(data)}</h1>
+      {id && <CatalogEditor entity="styles" id={id} onChanged={reload} />}
       <div className="detail-grid">
         <div><span className="field-label">ID</span>{data.id}</div>
         <div><span className="field-label">Category</span>{data.category ? <Link to={`/admin/catalog/categories/${data.category.id}`}>{data.category.name}</Link> : "None"}</div>

@@ -23,6 +23,8 @@ import { createUsersRouter } from './routes/users';
 import { createAdminRouter } from './routes/admin';
 import { resolveAdminAccess, AdminAccessRole } from './adminAccess';
 import { getAdminAccessWritePrisma } from './adminAccessDb';
+import { getCatalogWritePrisma } from './catalogWriteDb';
+import { createCatalogChangesRouter } from './routes/catalogChanges';
 import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
@@ -42,6 +44,7 @@ export type AppDeps = {
   firebaseVerifier?: AuthVerifier;
   resolveAdminAccess?: (uid: string) => Promise<AdminAccessRole | null>;
   adminAccessWritePrisma?: any;
+  catalogWritePrisma?: any;
   presignGetUrl?: PresignGetUrl | null;
   discoveryImageServices?: DiscoveryImageServices;
   discoveryManifestApproverIds?: number[];
@@ -99,6 +102,7 @@ export const createApp = (deps: AppDeps = {}) => {
   const api = express.Router();
   api.use(authMiddleware);
   api.use(createCatalogRouter(prisma));
+  api.use(createCatalogChangesRouter(prisma, deps.catalogWritePrisma !== undefined ? deps.catalogWritePrisma : getCatalogWritePrisma()));
   api.use(createUsersRouter(prisma));
   api.use(createAdminRouter(prisma, deps.firebaseVerifier, deps.adminAccessWritePrisma !== undefined ? deps.adminAccessWritePrisma : getAdminAccessWritePrisma()));
   api.use(createImagesRouter(prisma, presignGetUrl));
