@@ -112,7 +112,7 @@
 // Prints a JSON ImportReport on stdout. Refusals print
 // "IMPORT REFUSED [<check>]: <message>" on stderr and exit 1;
 // argument and configuration refusals exit 2.
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { fetchImageRestricted, FetchedImage, FetchResult } from '../src/discoveryImageFetch';
 import { discoveryObjectKey, getDefaultDiscoveryUploader, UploadImageFn } from '../src/discoveryImageUpload';
 import {
@@ -186,9 +186,10 @@ const CATALOG_SEQUENCES: Array<{ table: string; sequence: string }> = [
 export const alignCatalogSequences = async (tx: any): Promise<void> => {
   for (const { table, sequence } of CATALOG_SEQUENCES) {
     try {
-      await tx.$queryRawUnsafe(
-        `SELECT setval('${sequence}', GREATEST(COALESCE((SELECT MAX(id) FROM ${table}), 0), (SELECT last_value FROM ${sequence})), true) AS value`,
-      );
+      await tx.$queryRaw`SELECT setval(${sequence}::regclass, GREATEST(
+        COALESCE((SELECT MAX(id) FROM ${Prisma.raw(table)}), 0),
+        (SELECT last_value FROM ${Prisma.raw(sequence)})
+      ), true) AS value`;
     } catch (e) {
       throw refused(
         'sequence_alignment',
@@ -231,15 +232,15 @@ export const runImport = async (
       async (tx: any) => {
         // Validity through the write: one snapshot for checks AND
         // writes, and imports serialize on the advisory lock.
-        const lockRows = await tx.$queryRawUnsafe(
-          `SELECT pg_try_advisory_xact_lock(${CATALOG_IMPORT_ADVISORY_LOCK_KEY}) AS locked`,
-        );
+        const lockRows = await tx.$queryRaw`
+          SELECT pg_try_advisory_xact_lock(${CATALOG_IMPORT_ADVISORY_LOCK_KEY}) AS locked
+        `;
         let locked = lockRows?.[0]?.locked === true;
         for (let attempt = 0; !locked && attempt < 600; attempt += 1) {
           await sleep(500);
-          const again = await tx.$queryRawUnsafe(
-            `SELECT pg_try_advisory_xact_lock(${CATALOG_IMPORT_ADVISORY_LOCK_KEY}) AS locked`,
-          );
+          const again = await tx.$queryRaw`
+            SELECT pg_try_advisory_xact_lock(${CATALOG_IMPORT_ADVISORY_LOCK_KEY}) AS locked
+          `;
           locked = again?.[0]?.locked === true;
         }
         if (!locked) {
@@ -309,9 +310,12 @@ export const runImport = async (
         // committed versions, so a concurrent import that commits
         // first is seen here and the stale import aborts on check 2
         // instead of writing duplicates.
-        const candidateLockRows = await tx.$queryRawUnsafe(
-          `SELECT id, review_status, matched_beer_id FROM discovery_candidates WHERE id IN (${candidateIds.join(',')}) ORDER BY id FOR UPDATE`,
-        );
+        const candidateLockRows = await tx.$queryRaw`
+          SELECT id, review_status, matched_beer_id
+          FROM discovery_candidates
+          WHERE id IN (${Prisma.join(candidateIds)})
+          ORDER BY id FOR UPDATE
+        `;
         const lockById = new Map<number, any>(
           (Array.isArray(candidateLockRows) ? candidateLockRows : []).map((r: any) => [Number(r.id), r]),
         );
@@ -415,12 +419,12 @@ export const runImport = async (
           const normalizedName = reviewedBeer ? normalizeText(reviewedBeer.name) : candidate.normalized_name;
           const normalizedBrewery = reviewedBeer ? normalizeText(reviewedBeer.brewery_name) : candidate.normalized_brewery;
           if (normalizedName && normalizedBrewery) {
-            const clash = await tx.$queryRawUnsafe(
-              `SELECT b.id FROM beers b JOIN breweries br ON br.id = b.brewery_id
-               WHERE trim(regexp_replace(lower(b.name), '[^a-z0-9]+', ' ', 'g')) = $1
-                 AND trim(regexp_replace(lower(br.name), '[^a-z0-9]+', ' ', 'g')) = $2 LIMIT 1`,
-              normalizedName, normalizedBrewery,
-            );
+            const clash = await tx.$queryRaw`
+              SELECT b.id FROM beers b JOIN breweries br ON br.id = b.brewery_id
+              WHERE trim(regexp_replace(lower(b.name), '[^a-z0-9]+', ' ', 'g')) = ${normalizedName}
+                AND trim(regexp_replace(lower(br.name), '[^a-z0-9]+', ' ', 'g')) = ${normalizedBrewery}
+              LIMIT 1
+            `;
             if (Array.isArray(clash) && clash.length > 0) {
               throw refused('check3', `candidate ${record.candidate_id} (${record.candidate_key}) now collides with live beer ${clash[0].id} by normalized name + brewery.`);
             }
@@ -452,10 +456,11 @@ export const runImport = async (
             breweryIdByRecord.set(record.candidate_id, brewery.id);
           } else {
             const wanted = normalizeText(record.beer.brewery_name);
-            const namesakes = await tx.$queryRawUnsafe(
-              `SELECT id FROM breweries WHERE trim(regexp_replace(lower(name), '[^a-z0-9]+', ' ', 'g')) = $1 LIMIT 1`,
-              wanted,
-            );
+            const namesakes = await tx.$queryRaw`
+              SELECT id FROM breweries
+              WHERE trim(regexp_replace(lower(name), '[^a-z0-9]+', ' ', 'g')) = ${wanted}
+              LIMIT 1
+            `;
             if (Array.isArray(namesakes) && namesakes.length > 0) {
               throw refused('check4', `candidate ${record.candidate_id} (${record.candidate_key}) expects to create brewery "${record.beer.brewery_name}", but a live brewery with that name (id ${namesakes[0].id}) now exists; the manifest is stale.`);
             }
@@ -473,7 +478,7 @@ export const runImport = async (
         }
 
         // CHECK 5: catalog fingerprint unchanged since the build.
-        const fingerprint = await computeCatalogFingerprint((sql: string) => tx.$queryRawUnsafe(sql));
+        const fingerprint = await computeCatalogFingerprint((sql: Prisma.Sql) => tx.$queryRaw(sql));
         if (!fingerprintsEqual(fingerprint, content.catalog_fingerprint)) {
           const diffs = fingerprintDiff(content.catalog_fingerprint, fingerprint);
           throw refused('check5', `the live catalog changed after the manifest was built (fingerprint mismatch: ${diffs.join('; ')}). The approval is stale; rebuild and re-approve.`);
@@ -514,8 +519,8 @@ export const runImport = async (
         }
 
         if (dryRun) {
-          const maxBeer = await tx.$queryRawUnsafe('SELECT coalesce(max(id), 0)::int AS max_id FROM beers');
-          const maxBrewery = await tx.$queryRawUnsafe('SELECT coalesce(max(id), 0)::int AS max_id FROM breweries');
+          const maxBeer = await tx.$queryRaw`SELECT coalesce(max(id), 0)::int AS max_id FROM beers`;
+          const maxBrewery = await tx.$queryRaw`SELECT coalesce(max(id), 0)::int AS max_id FROM breweries`;
           let nextBeer = Number(maxBeer[0].max_id);
           let nextBrewery = Number(maxBrewery[0].max_id);
           const wouldBeBreweryId = new Map<string, number>();
