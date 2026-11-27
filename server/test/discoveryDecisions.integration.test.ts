@@ -84,6 +84,7 @@ run('discovery decisions against local database', () => {
     pairId = pair.id;
 
     app = createApp({
+      resolveAdminAccess: async () => 'owner',
       prisma: getPrisma(),
       writePrisma: null,
       discoveryWritePrisma: getDiscoveryWritePrisma(),

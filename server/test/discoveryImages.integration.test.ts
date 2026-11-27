@@ -124,6 +124,7 @@ run('discovery image review against local database and stub origin', () => {
     });
 
     app = createApp({
+      resolveAdminAccess: async () => 'owner',
       prisma: getPrisma(),
       writePrisma: null,
       discoveryWritePrisma: getDiscoveryWritePrisma(),

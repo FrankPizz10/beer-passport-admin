@@ -4,6 +4,7 @@ import "./SignInForm.css";
 import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { auth } from "../Firebase/firebase";
 import { useNavigate } from "react-router-dom";
+import { apiGet } from "../api/client";
 
 const SignInPage: React.FC = () => {
   const [username, setUsername] = useState("");
@@ -15,16 +16,9 @@ const SignInPage: React.FC = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
-        user.getIdTokenResult().then((idTokenResult) => {
-          if (idTokenResult.claims.admin) {
-            console.log(`User is signed in with email ${user.email}`);
-            navigate("/admin", { state: { user: user.email } });
-          }
-          else {
-            console.log(`User is not an admin`);
-            setErrorMessage("User is not an admin!");
-          }
-        });
+        apiGet<{ role: "owner" | "admin" }>("/admin/session")
+          .then(() => navigate("/admin", { state: { user: user.email } }))
+          .catch(() => setErrorMessage("Admin access could not be verified."));
       }
       else {
         setErrorMessage("User is not signed in");

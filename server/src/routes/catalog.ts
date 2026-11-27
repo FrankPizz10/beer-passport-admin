@@ -76,8 +76,8 @@ export const createCatalogRouter = (prisma: any) => {
     if (!beer) throw notFound('Beer not found.');
     const image = await resolveImage(prisma, beer);
     const [triedCount, likedCount, memberships] = await Promise.all([
-      prisma.user_beers.count({ where: { beer_id: id } }),
-      prisma.user_beers.count({ where: { beer_id: id, liked: true } }),
+      res.locals.adminRole === 'owner' ? prisma.user_beers.count({ where: { beer_id: id } }) : null,
+      res.locals.adminRole === 'owner' ? prisma.user_beers.count({ where: { beer_id: id, liked: true } }) : null,
       // Capped so a detail response stays bounded no matter how many
       // collections a beer joins (QA finding: unbounded findMany).
       prisma.collection_beers.findMany({ where: { beer_id: id }, select: P.collectionBeerListSelect, orderBy: { id: 'asc' }, take: 200 }),
@@ -225,13 +225,14 @@ export const createCatalogRouter = (prisma: any) => {
     if (q) where.name = { contains: String(q), mode: 'insensitive' };
     const [total, rows] = await Promise.all([
       prisma.collections.count({ where }),
-      prisma.collections.findMany({ where, select: P.collectionListSelect, orderBy: orderByFor(sort), skip: skipFor(pagination), take: pagination.pageSize }),
+      prisma.collections.findMany({ where, select: res.locals.adminRole === 'owner' ? P.collectionListSelect : { ...P.collectionListSelect, _count: { select: { collection_beers: true } } }, orderBy: orderByFor(sort), skip: skipFor(pagination), take: pagination.pageSize }),
     ]);
     const results = rows.map((r: any) => ({
       ...r,
+      _count: r._count ? { collection_beers: r._count.collection_beers, ...(res.locals.adminRole === 'owner' ? { user_badges: r._count.user_badges } : {}) } : null,
       beer_count: r._count ? r._count.collection_beers : 0,
       member_count: r._count ? r._count.collection_beers : 0,
-      badge_holder_count: r._count ? r._count.user_badges : 0,
+      badge_holder_count: res.locals.adminRole === 'owner' ? (r._count ? r._count.user_badges : 0) : null,
     }));
     res.json({ results, pagination: paginationResult(pagination.page, pagination.pageSize, total) });
   }));
@@ -245,7 +246,7 @@ export const createCatalogRouter = (prisma: any) => {
     const [total, members, badgeCount] = await Promise.all([
       prisma.collection_beers.count({ where }),
       prisma.collection_beers.findMany({ where, select: P.collectionBeerListSelect, orderBy: { id: 'asc' }, skip: skipFor(pagination), take: pagination.pageSize }),
-      prisma.user_badges.count({ where: { collection_id: id } }),
+      res.locals.adminRole === 'owner' ? prisma.user_badges.count({ where: { collection_id: id } }) : null,
     ]);
     res.json({
       ...collection,

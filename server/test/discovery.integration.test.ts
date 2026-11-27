@@ -14,6 +14,7 @@ const run = process.env.RUN_DB_TESTS === '1' ? describe : describe.skip;
 run('discovery hub against local database', () => {
   const prisma = getPrisma();
   const app = createApp({
+    resolveAdminAccess: async () => 'owner',
     prisma,
     verifyIdToken: async () => ({ uid: 'integration-admin', user_id: 'integration-admin', admin: true }),
     findUserByUid: async () => ({ id: 1, uid: 'integration-admin' }),

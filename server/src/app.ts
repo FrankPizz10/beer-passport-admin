@@ -21,6 +21,8 @@ import decodeAdminToken from './middleware/decodeAdminToken';
 import { createCatalogRouter } from './routes/catalog';
 import { createUsersRouter } from './routes/users';
 import { createAdminRouter } from './routes/admin';
+import { resolveAdminAccess, AdminAccessRole } from './adminAccess';
+import { getAdminAccessWritePrisma } from './adminAccessDb';
 import { createImagesRouter } from './routes/images';
 import { createImageApprovalsRouter } from './routes/imageApprovals';
 import { createDiscoveryRouter } from './routes/discovery';
@@ -38,6 +40,8 @@ export type AppDeps = {
   verifyIdToken?: (token: string) => Promise<any>;
   findUserByUid?: (uid: string) => Promise<any>;
   firebaseVerifier?: AuthVerifier;
+  resolveAdminAccess?: (uid: string) => Promise<AdminAccessRole | null>;
+  adminAccessWritePrisma?: any;
   presignGetUrl?: PresignGetUrl | null;
   discoveryImageServices?: DiscoveryImageServices;
   discoveryManifestApproverIds?: number[];
@@ -60,6 +64,7 @@ export const createApp = (deps: AppDeps = {}) => {
     authMiddleware = createDecodeAdminToken({
       verifyIdToken: deps.verifyIdToken || ((token: string) => verifier.verifyIdToken(token)),
       findUserByUid: deps.findUserByUid || defaultFindUserByUid,
+      resolveAccess: deps.resolveAdminAccess || ((uid) => resolveAdminAccess(prisma, uid, process.env.ADMIN_OWNER_UID)),
     });
   } else if (deps.prisma) {
     // Tests that inject only a Prisma stub still need the default user
@@ -69,6 +74,7 @@ export const createApp = (deps: AppDeps = {}) => {
       verifyIdToken: (token: string) => verifier.verifyIdToken(token),
       findUserByUid: async (uid: string) =>
         prisma.users.findUnique({ where: { uid }, select: { id: true, uid: true, email: true, user_name: true } }),
+      resolveAccess: deps.resolveAdminAccess || ((uid) => resolveAdminAccess(prisma, uid, process.env.ADMIN_OWNER_UID)),
     });
   } else {
     authMiddleware = decodeAdminToken;
@@ -94,7 +100,7 @@ export const createApp = (deps: AppDeps = {}) => {
   api.use(authMiddleware);
   api.use(createCatalogRouter(prisma));
   api.use(createUsersRouter(prisma));
-  api.use(createAdminRouter(prisma, deps.firebaseVerifier));
+  api.use(createAdminRouter(prisma, deps.firebaseVerifier, deps.adminAccessWritePrisma !== undefined ? deps.adminAccessWritePrisma : getAdminAccessWritePrisma()));
   api.use(createImagesRouter(prisma, presignGetUrl));
   api.use(createImageApprovalsRouter(prisma, writePrisma));
   api.use(createDiscoveryRouter(prisma));

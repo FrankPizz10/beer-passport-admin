@@ -236,6 +236,7 @@ run('discovery manifests + import executor against the disposable database', () 
     });
 
     app = createApp({
+      resolveAdminAccess: async () => 'owner',
       prisma: getPrisma(),
       writePrisma: null,
       discoveryWritePrisma: getDiscoveryWritePrisma(),

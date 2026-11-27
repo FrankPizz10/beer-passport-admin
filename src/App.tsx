@@ -20,7 +20,6 @@ import ImageQueuePage from "./pages/ImageQueuePage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import AdminAccountsPage from "./pages/AdminAccountsPage";
-import ApiKeysPage from "./pages/ApiKeysPage";
 import DiscoveryBatchesPage from "./pages/DiscoveryBatchesPage";
 import DiscoveryManifestsPage from "./pages/DiscoveryManifestsPage";
 import DiscoveryManifestDetailPage from "./pages/DiscoveryManifestDetailPage";
@@ -64,7 +63,6 @@ function AppRoutes() {
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:id" element={<UserDetailPage />} />
           <Route path="admin/accounts" element={<AdminAccountsPage />} />
-          <Route path="admin/api-keys" element={<ApiKeysPage />} />
         </Route>
       </Routes>
     </ErrorBoundary>

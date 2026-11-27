@@ -102,6 +102,10 @@ jobs:
       - name: API tests
         run: npm test
 
+      - name: Admin access PostgreSQL isolation and rollback
+        working-directory: .
+        run: sh server/scripts/test-admin-access-postgres.sh
+
       - name: Deployment rollback checks
         run: bash ../scripts/test-deploy-api.sh
 
