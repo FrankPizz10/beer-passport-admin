@@ -20,6 +20,7 @@
 // - no response ever contains a Firebase UID.
 // All Prisma dependencies are in-memory stubs.
 import request from 'supertest';
+import { Prisma } from '@prisma/client';
 import { createApp } from '../app';
 import { canonicalManifestBytes, manifestSha256, sha256Hex } from '../discoveryManifestCore';
 
@@ -147,11 +148,11 @@ const buildHarness = (opts: {
     },
     breweries: { findMany: async () => state.breweries },
     styles: { findMany: async () => state.styles },
-    $queryRawUnsafe: async (sql: string) => {
-      if (sql.includes('FROM beverage_images')) return fingerprintRows('beverage_images');
-      if (sql.includes('FROM breweries')) return fingerprintRows('breweries');
-      if (sql.includes('FROM categories')) return fingerprintRows('categories');
-      if (sql.includes('FROM styles')) return fingerprintRows('styles');
+    $queryRaw: async (query: Prisma.Sql) => {
+      if (query.sql.includes('FROM beverage_images')) return fingerprintRows('beverage_images');
+      if (query.sql.includes('FROM breweries')) return fingerprintRows('breweries');
+      if (query.sql.includes('FROM categories')) return fingerprintRows('categories');
+      if (query.sql.includes('FROM styles')) return fingerprintRows('styles');
       return fingerprintRows('beers');
     },
     discovery_import_manifests: {
