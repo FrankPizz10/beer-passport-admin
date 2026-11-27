@@ -5,7 +5,8 @@
 // (server/scripts/import-discovery-manifest.ts): canonical
 // serialization, hashing, the catalog baseline fingerprint, and the
 // per-candidate eligibility evaluation. No IO and no database access
-// live here (the fingerprint SQL strings are data; callers run them).
+// live here (the fingerprint queries are immutable Prisma SQL values;
+// callers execute them with their database client).
 //
 // Canonical serialization matches the bundle convention in
 // scripts/discoveryBundleCore.ts (the same algorithm, duplicated here
@@ -30,6 +31,7 @@
 //   breweries:       id, name, last_mod
 //   beverage_images: id, beverage_id, status, updated_at
 import * as crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { ReviewIntent } from './discoveryReviewIntent';
 
 export const MANIFEST_SCHEMA = 'discovery-import-manifest/1';
@@ -115,10 +117,12 @@ export interface CatalogFingerprint {
   beverage_images: TableFingerprint;
 }
 
-const fingerprintSql = (table: string, rowExpression: string): string =>
-  `SELECT count(*)::int AS count, md5(coalesce(string_agg(md5(${rowExpression}), '' ORDER BY id), '')) AS md5 FROM ${table}`;
+// Identifiers/expressions below are fixed source constants. They are the
+// only fragments passed through Prisma.raw; request data is never included.
+const fingerprintSql = (table: string, rowExpression: string): Prisma.Sql =>
+  Prisma.sql`SELECT count(*)::int AS count, md5(coalesce(string_agg(md5(${Prisma.raw(rowExpression)}), '' ORDER BY id), '')) AS md5 FROM ${Prisma.raw(table)}`;
 
-export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, string> = {
+export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, Prisma.Sql> = {
   beers: fingerprintSql(
     'beers',
     "(to_jsonb(beers) - 'search_vector')::text",
@@ -135,14 +139,14 @@ export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, string> = {
   ),
 };
 
-export type RawQuery = (sql: string) => Promise<any[]>;
+export type FingerprintQuery = (sql: Prisma.Sql) => Promise<any[]>;
 
 // Runs the three fingerprint queries through the caller's query
 // function (a Prisma client's $queryRawUnsafe, on whichever identity
 // the caller holds; inside the import transaction it MUST be the
 // transaction client so the fingerprint is read from the import's
 // own snapshot).
-export const computeCatalogFingerprint = async (queryRaw: RawQuery): Promise<CatalogFingerprint> => {
+export const computeCatalogFingerprint = async (queryRaw: FingerprintQuery): Promise<CatalogFingerprint> => {
   const out = {} as CatalogFingerprint;
   for (const table of ['beers', 'breweries', 'categories', 'styles', 'beverage_images'] as const) {
     const rows = await queryRaw(FINGERPRINT_SQL[table]);
