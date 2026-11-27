@@ -255,7 +255,7 @@ export const createDiscoveryManifestsRouter = (
     }
 
     const fingerprint = await computeCatalogFingerprint(
-      (sql: string) => readPrisma.$queryRawUnsafe(sql),
+      (sql) => readPrisma.$queryRaw(sql),
     );
 
     const blockers: Array<{ candidate_id: number; candidate_key: string; reasons: string[] }> = [];
