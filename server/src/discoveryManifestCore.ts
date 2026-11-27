@@ -5,8 +5,7 @@
 // (server/scripts/import-discovery-manifest.ts): canonical
 // serialization, hashing, the catalog baseline fingerprint, and the
 // per-candidate eligibility evaluation. No IO and no database access
-// live here (the fingerprint queries are immutable Prisma SQL values;
-// callers execute them with their database client).
+// live here (the fingerprint SQL strings are data; callers run them).
 //
 // Canonical serialization matches the bundle convention in
 // scripts/discoveryBundleCore.ts (the same algorithm, duplicated here
@@ -141,8 +140,8 @@ export const FINGERPRINT_SQL: Record<keyof CatalogFingerprint, Prisma.Sql> = {
 
 export type FingerprintQuery = (sql: Prisma.Sql) => Promise<any[]>;
 
-// Runs the three fingerprint queries through the caller's query
-// function (a Prisma client's $queryRawUnsafe, on whichever identity
+// Runs the five fingerprint queries through the caller's query
+// function (a Prisma client's parameterized $queryRaw, on whichever identity
 // the caller holds; inside the import transaction it MUST be the
 // transaction client so the fingerprint is read from the import's
 // own snapshot).
