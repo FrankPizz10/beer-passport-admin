@@ -6,7 +6,7 @@ cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT HUP INT TERM
 docker run -d --rm --name "$container" -e POSTGRES_PASSWORD=disposable-test -p 127.0.0.1::5432 postgres:16-alpine >/dev/null
 attempt=0
-until docker exec "$container" pg_isready -U postgres >/dev/null 2>&1; do
+until docker exec "$container" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do
   attempt=$((attempt + 1)); [ "$attempt" -lt 30 ] || { echo 'Postgres did not start' >&2; exit 1; }
   sleep 1
 done
